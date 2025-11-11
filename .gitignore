@@ -1,1 +1,12 @@
-node_modules
+# venv
+venv/
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# configs
+.env
+*.sqlite3
