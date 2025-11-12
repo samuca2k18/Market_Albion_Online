@@ -184,8 +184,4 @@ Retorno:
 * [ ] Criar dashboard web/frontend para visualização dos itens
 * [ ] Envio de notificações quando o item estiver abaixo de um valor definido
 
----
 
-
-Quer que eu inclua também a seção de **Deploy (Render/Railway)** no README, mostrando como hospedar o backend na nuvem?
-```
