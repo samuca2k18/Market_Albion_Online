@@ -14,6 +14,7 @@ API REST profissional desenvolvida em **Python (FastAPI)** para autenticação d
 - [Funcionalidades](#-funcionalidades)
 - [Tecnologias](#-tecnologias)
 - [Estrutura do Projeto](#-estrutura-do-projeto)
+- [Diagramas Arquiteturais](#️-diagramas-arquiteturais)
 - [Pré-requisitos](#-pré-requisitos)
 - [Instalação](#-instalação)
 - [Configuração](#-configuração)
@@ -92,6 +93,176 @@ Market_Albion_Online/
 ├── .env.example         # Exemplo de variáveis de ambiente
 ├── .gitignore           # Arquivos ignorados pelo Git
 └── README.md            # Este arquivo
+```
+
+---
+
+## 🏗️ Diagramas Arquiteturais
+
+### Arquitetura Geral do Sistema
+
+```mermaid
+graph TB
+    Client[Cliente/Usuário] -->|HTTP/HTTPS| API[FastAPI Application]
+    
+    subgraph "Camada de Aplicação"
+        API --> Router[Rotas/Endpoints]
+        Router --> Auth[Autenticação JWT]
+        Router --> Validation[Validação Pydantic]
+    end
+    
+    subgraph "Camada de Negócio"
+        Auth --> AuthModule[auth.py<br/>Hash/Verificação Senha<br/>Geração JWT]
+        Router --> BusinessLogic[Lógica de Negócio]
+    end
+    
+    subgraph "Camada de Dados"
+        BusinessLogic --> ORM[SQLAlchemy ORM]
+        ORM --> DB[(PostgreSQL<br/>Supabase)]
+    end
+    
+    subgraph "Integração Externa"
+        BusinessLogic --> AlbionAPI[Albion Online Data API<br/>Consulta de Preços]
+    end
+    
+    style API fill:#009688
+    style DB fill:#336791
+    style AlbionAPI fill:#FF6B6B
+    style Auth fill:#FFA726
+```
+
+### Fluxo de Autenticação
+
+```mermaid
+sequenceDiagram
+    participant C as Cliente
+    participant API as FastAPI
+    participant Auth as auth.py
+    participant DB as PostgreSQL
+    
+    Note over C,DB: Cadastro de Usuário
+    C->>API: POST /signup (username, email, password)
+    API->>Auth: get_password_hash(password)
+    Auth-->>API: hashed_password
+    API->>DB: INSERT INTO users
+    DB-->>API: User criado
+    API-->>C: UserOut (id, username, email)
+    
+    Note over C,DB: Login
+    C->>API: POST /login (username, password)
+    API->>DB: SELECT user WHERE username
+    DB-->>API: User
+    API->>Auth: verify_password(password, hash)
+    Auth-->>API: True/False
+    alt Senha válida
+        API->>Auth: create_access_token({sub: username})
+        Auth-->>API: JWT Token
+        API-->>C: {access_token, token_type: "bearer"}
+    else Senha inválida
+        API-->>C: 401 Unauthorized
+    end
+    
+    Note over C,DB: Requisição Autenticada
+    C->>API: GET /me (Bearer Token)
+    API->>Auth: jwt.decode(token)
+    Auth-->>API: payload {sub: username}
+    API->>DB: SELECT user WHERE username
+    DB-->>API: User
+    API-->>C: UserOut
+```
+
+### Fluxo de Consulta de Preços
+
+```mermaid
+sequenceDiagram
+    participant C as Cliente
+    participant API as FastAPI
+    participant Auth as Autenticação
+    participant DB as PostgreSQL
+    participant Albion as Albion API
+    
+    C->>API: GET /albion/price?item_name=T4_BAG
+    API->>Auth: Validar JWT Token
+    Auth-->>API: Usuário autenticado
+    
+    alt Consulta de Item Único
+        API->>Albion: GET /api/v2/stats/prices/T4_BAG?locations=...
+        Albion-->>API: Dados de preços por cidade
+        API->>API: Processar e encontrar cidade mais barata
+        API-->>C: {item, cheapest_city, cheapest_price, all_data}
+    else Consulta em Lote (Meus Itens)
+        API->>DB: SELECT user_items WHERE user_id
+        DB-->>API: Lista de itens
+        loop Para cada item
+            API->>Albion: GET /api/v2/stats/prices/{item}?locations=...
+            Albion-->>API: Dados de preços
+            API->>API: Processar preços
+        end
+        API-->>C: {items: [{item, cheapest_city, cheapest_price}, ...]}
+    end
+```
+
+### Modelo de Dados (Diagrama ER)
+
+```mermaid
+erDiagram
+    USERS ||--o{ USER_ITEMS : "possui"
+    
+    USERS {
+        int id PK
+        string username UK
+        string email UK
+        string hashed_password
+    }
+    
+    USER_ITEMS {
+        int id PK
+        int user_id FK
+        string item_name
+        datetime created_at
+    }
+```
+
+### Arquitetura de Camadas
+
+```mermaid
+graph LR
+    subgraph "Camada de Apresentação"
+        A[FastAPI Endpoints<br/>main.py]
+    end
+    
+    subgraph "Camada de Aplicação"
+        B[Schemas Pydantic<br/>schemas.py]
+        C[Autenticação<br/>auth.py]
+    end
+    
+    subgraph "Camada de Domínio"
+        D[Modelos ORM<br/>models.py]
+    end
+    
+    subgraph "Camada de Infraestrutura"
+        E[Database Config<br/>database.py]
+        F[PostgreSQL<br/>Supabase]
+    end
+    
+    subgraph "Serviços Externos"
+        G[Albion Online<br/>Data API]
+    end
+    
+    A --> B
+    A --> C
+    A --> D
+    D --> E
+    E --> F
+    A --> G
+    
+    style A fill:#009688
+    style B fill:#4CAF50
+    style C fill:#FFA726
+    style D fill:#2196F3
+    style E fill:#9C27B0
+    style F fill:#336791
+    style G fill:#FF6B6B
 ```
 
 ---
