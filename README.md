@@ -2,6 +2,9 @@
 
 API REST profissional desenvolvida em **Python (FastAPI)** para autenticação de usuários, gerenciamento de itens monitorados e consulta de preços do mercado do jogo **Albion Online**. O banco de dados é hospedado no **Supabase (PostgreSQL)**.
 
+Albion Online é um MMORPG Sandbox mundo aberto onde você que faz a sua história, em vez de seguir um caminho pré-definido. Explore um mundo aberto gigante que tem 5 ecossistemas diferentes. Tudo que você faz afeta o mundo, porque em Albion a economia é feita pelos jogadores.
+
+
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.121.1-green.svg)](https://fastapi.tiangolo.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Supabase-blue.svg)](https://supabase.com/)
