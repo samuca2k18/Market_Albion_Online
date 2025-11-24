@@ -409,10 +409,36 @@ def get_albion_price(
         "all_data": data
     }
 
+@app.delete(
+    "/items/{item_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remover item",
+    tags=["Itens"],
+)
+def delete_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    item = db.query(UserItem).filter(
+        UserItem.id == item_id,
+        UserItem.user_id == current_user.id
+    ).first()
+    
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item não encontrado"
+        )
+    
+    db.delete(item)
+    db.commit()
+    return None
+
 @app.get(
     "/albion/my-items-prices",
     summary="Consultar preços dos meus itens",
-    description="Consulta os preços de todos os itens na lista de monitoramento do usuário",
+    description="Retorna preços no formato compatível com o frontend (array direto)",
     tags=["Albion Online"],
 )
 def get_my_items_prices(
@@ -421,96 +447,81 @@ def get_my_items_prices(
     cities: str = Query(
         DEFAULT_CITIES,
         description="Lista de cidades separadas por vírgula"
-    )
+    ),
+    quality: int = Query(0, description="Qualidade do item (0 = qualquer)"),
+    enchantment: int = Query(0, description="Encantamento (0 = qualquer)")
 ):
-    """
-    Consulta os preços de todos os itens na lista de monitoramento do usuário.
-    
-    - **cities**: Lista de cidades separadas por vírgula (opcional)
-    
-    Retorna os preços mais baratos para cada item nas cidades especificadas.
-    """
-    user_items = db.query(UserItem).filter(
-        UserItem.user_id == current_user.id
-    ).all()
+    user_items = db.query(UserItem).filter(UserItem.user_id == current_user.id).all()
     
     if not user_items:
-        return {
-            "user_id": current_user.id,
-            "cities_checked": [c.strip() for c in cities.split(",") if c.strip()],
-            "items": [],
-            "message": "Nenhum item na sua lista de monitoramento"
-        }
-    
-    # Valida e normaliza as cidades
-    city_list = [city.strip() for city in cities.split(",") if city.strip()]
-    
+        return []  # ← frontend espera array vazio
+
+    city_list = [c.strip() for c in cities.split(",") if c.strip()]
     if not city_list:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Pelo menos uma cidade deve ser especificada"
-        )
-    
+        city_list = DEFAULT_CITIES.split(",")
+
     results = []
-    
+
     for ui in user_items:
-        url = f"{ALBION_API_BASE_URL}/{ui.item_name}?locations={','.join(city_list)}"
-        
+        item_name = ui.item_name
+
+        # Monta o item com qualidade e encantamento se necessário
+        base_name = item_name
+        item_quality = quality
+        item_enchant = enchantment
+
+        # Detecta qualidade/encantamento no nome (ex: T4_BAG@3 ou T5_SHOES_CLOTH_SET1.1)
+        if "@" in item_name:
+            base_name, enchant_str = item_name.split("@", 1)
+            try:
+                item_enchant = int(enchant_str)
+            except:
+                item_enchant = 0
+        elif "." in item_name:
+            parts = item_name.split(".")
+            if len(parts) > 1:
+                try:
+                    item_quality = int(parts[-1])
+                    base_name = ".".join(parts[:-1])
+                except:
+                    pass
+
+        url = f"{ALBION_API_BASE_URL}/{base_name}"
+        params = {"locations": ",".join(city_list)}
+        if item_quality > 0:
+            params["qualities"] = str(item_quality)
+        if item_enchant > 0:
+            item_name_with_enchant = f"{base_name}@{item_enchant}"
+            url = f"{ALBION_API_BASE_URL}/{item_name_with_enchant}"
+
         try:
-            resp = requests.get(url, timeout=ALBION_API_TIMEOUT)
+            resp = requests.get(url, params=params, timeout=ALBION_API_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
-            
-            if not data or not isinstance(data, list):
-                results.append({
-                    "item": ui.item_name,
-                    "status": "no_data",
-                    "message": "Nenhum dado retornado"
-                })
+
+            valid_prices = [d for d in data if d.get("sell_price_min", 0) > 0]
+            if not valid_prices:
                 continue
-            
-            # Filtra apenas itens com preço de venda válido
-            valid = [
-                d for d in data
-                if isinstance(d, dict) and d.get("sell_price_min", 0) > 0
-            ]
-            
-            if not valid:
-                results.append({
-                    "item": ui.item_name,
-                    "status": "no_price",
-                    "message": "Sem preço de venda disponível nas cidades informadas"
-                })
-                continue
-            
-            # Ordena por preço e pega o mais barato
-            valid.sort(key=lambda x: x.get("sell_price_min", float("inf")))
-            cheapest = valid[0]
-            
+
+            valid_prices.sort(key=lambda x: x.get("sell_price_min", float("inf")))
+            cheapest = valid_prices[0]
+
             results.append({
-                "item": ui.item_name,
-                "status": "success",
-                "cheapest_city": cheapest.get("city", "N/A"),
-                "cheapest_price": cheapest.get("sell_price_min", 0),
+                "item_name": ui.item_name,
+                "city": cheapest.get("city", "N/A"),
+                "price": cheapest.get("sell_price_min", 0),
+                "quality": cheapest.get("quality", 1),
+                "enchantment": item_enchant,
+                "date": cheapest.get("sell_price_min_date", None)
             })
-            
-        except (Timeout, RequestException) as e:
-            logger.warning(f"Erro ao consultar preço do item {ui.item_name}: {e}")
-            results.append({
-                "item": ui.item_name,
-                "status": "error",
-                "message": "Erro ao consultar API do Albion Online"
-            })
+
+        except Exception as e:
+            logger.warning(f"Erro ao buscar {ui.item_name}: {e}")
             continue
 
-    return {
-        "user_id": current_user.id,
-        "cities_checked": city_list,
-        "total_items": len(user_items),
-        "items": results
-    }
-
-
+    # Ordena por preço crescente
+    results.sort(key=lambda x: x["price"])
+    return results  # ← agora retorna array direto de objetos!
 @app.get(
     "/health",
     summary="Health check",
