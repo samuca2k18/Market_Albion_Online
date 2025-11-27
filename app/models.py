@@ -1,8 +1,8 @@
 # models.py
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, func
 from sqlalchemy.orm import relationship
+from app.database import Base
 
-from database import Base
 
 
 class User(Base):
