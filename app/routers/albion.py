@@ -11,12 +11,17 @@ from app.models import UserItem
 router = APIRouter(prefix="/albion", tags=["Albion Online"])
 
 
-@router.get("/search")
-def search_item(q: str = Query(..., min_length=2)):
-    """
-    Busca itens por nome (PT-BR ou EN) usando o índice local (nomes_simplificados.json).
-    """
-    resultados = buscar_item_por_nome(q)
+LANG_SLUG_TO_KEY = {"pt-br": "pt_br", "en-us": "en_us"}
+
+
+def _validate_lang_slug(lang: str) -> str:
+    key = LANG_SLUG_TO_KEY.get(lang.lower())
+    if not key:
+        raise HTTPException(400, "Idioma inválido, use pt-br ou en-us")
+    return key
+
+
+def _serialize_resultados(resultados: List[dict]):
     return [
         {
             "unique_name": r["UniqueName"],
@@ -28,37 +33,71 @@ def search_item(q: str = Query(..., min_length=2)):
     ]
 
 
-@router.get("/prices")
-def get_prices_endpoint(
-    items: str = Query(
-        ...,
-        description="Itens separados por vírgula (UniqueNames OU nomes PT/EN)",
-    ),
-    cities: str = Query(",".join(settings.DEFAULT_CITIES)),
-    qualities: str = Query("1,2,3,4,5"),
-    current_user=Depends(get_current_user),
-):
-    """
-    Preços para múltiplos itens.
+def _normalize_lang(lang: str) -> str:
+    lang_norm = (lang or "").lower().replace("-", "_")
+    return lang_norm if lang_norm in ("pt_br", "en_us") else "pt_br"
 
-    Aceita:
-      - UniqueNames: T4_BAG,T4_BAG@1
-      - Nomes humanos: 'bolsa do adepto, capa letal'
-    Faz a resolução de nomes PT/EN -> UniqueName automaticamente.
-    """
-    raw_items = [i.strip() for i in items.split(",") if i.strip()]
 
-    # Resolve cada nome para UniqueName
-    item_list: List[str] = []
+@router.get("/search/pt-br")
+def search_item_pt(q: str = Query(..., min_length=2)):
+    """
+    Busca itens por nome em PT-BR usando o índice nomes_pt_br.json.
+    """
+    resultados = buscar_item_por_nome(q, "pt_br")
+    return _serialize_resultados(resultados)
+
+
+@router.get("/search/en-us")
+def search_item_en(q: str = Query(..., min_length=2)):
+    """
+    Busca itens por nome em EN-US usando o índice nomes_en_us.json.
+    """
+    resultados = buscar_item_por_nome(q, "en_us")
+    return _serialize_resultados(resultados)
+
+
+# Rota legada mantida para compatibilidade (usa PT-BR por padrão)
+@router.get("/search")
+def search_item(q: str = Query(..., min_length=2)):
+    # Mantém compatibilidade aceitando PT-BR e, em fallback, EN-US
+    resultados = buscar_item_por_nome(q, "pt_br")
+    if not resultados:
+        resultados = buscar_item_por_nome(q, "en_us")
+    return _serialize_resultados(resultados)
+
+
+def _resolver_lista_itens(
+    raw_items: List[str], lang_key: str, permitir_fallback_en: bool = False
+) -> List[str]:
+    """
+    Resolve nomes humanos para UniqueName respeitando o idioma.
+    """
+    resolved: List[str] = []
     for it in raw_items:
-        # Já parece UniqueName (T4_BAG, T4_BAG@1, etc.)
         if it.upper().startswith("T") and "_" in it:
-            item_list.append(it.upper())
-        else:
-            # Tenta resolver pelo índice PT/EN
-            candidatos = buscar_item_por_nome(it)
-            if candidatos:
-                item_list.append(candidatos[0]["UniqueName"])
+            resolved.append(it.upper())
+            continue
+
+        candidatos = buscar_item_por_nome(it, lang_key)
+        if not candidatos and permitir_fallback_en and lang_key == "pt_br":
+            candidatos = buscar_item_por_nome(it, "en_us")
+        if candidatos:
+            resolved.append(candidatos[0]["UniqueName"])
+    return resolved
+
+
+def _buscar_precos_por_idioma(
+    items: str,
+    cities: str,
+    qualities: str,
+    lang_key: str,
+    current_user,
+    permitir_fallback_en: bool = False,
+):
+    raw_items = [i.strip() for i in items.split(",") if i.strip()]
+    item_list = _resolver_lista_itens(
+        raw_items, lang_key, permitir_fallback_en=permitir_fallback_en
+    )
 
     if not item_list:
         raise HTTPException(404, "Nenhum item válido encontrado")
@@ -89,6 +128,61 @@ def get_prices_endpoint(
     return {"items": cheapest_by_item, "all_data": data}
 
 
+@router.get("/prices/pt-br")
+def get_prices_pt(
+    items: str = Query(
+        ...,
+        description="Itens separados por vírgula (UniqueNames OU nomes PT-BR)",
+    ),
+    cities: str = Query(",".join(settings.DEFAULT_CITIES)),
+    qualities: str = Query("1,2,3,4,5"),
+    current_user=Depends(get_current_user),
+):
+    """
+    Preços para múltiplos itens resolvendo nomes PT-BR.
+    """
+    return _buscar_precos_por_idioma(items, cities, qualities, "pt_br", current_user)
+
+
+@router.get("/prices/en-us")
+def get_prices_en(
+    items: str = Query(
+        ...,
+        description="Itens separados por vírgula (UniqueNames OU nomes EN-US)",
+    ),
+    cities: str = Query(",".join(settings.DEFAULT_CITIES)),
+    qualities: str = Query("1,2,3,4,5"),
+    current_user=Depends(get_current_user),
+):
+    """
+    Preços para múltiplos itens resolvendo nomes EN-US.
+    """
+    return _buscar_precos_por_idioma(items, cities, qualities, "en_us", current_user)
+
+
+@router.get("/prices")
+def get_prices_endpoint(
+    items: str = Query(
+        ...,
+        description="Itens separados por vírgula (UniqueNames OU nomes PT/EN)",
+    ),
+    cities: str = Query(",".join(settings.DEFAULT_CITIES)),
+    qualities: str = Query("1,2,3,4,5"),
+    current_user=Depends(get_current_user),
+):
+    """
+    Preços para múltiplos itens (legado, usa PT-BR como padrão).
+
+    Aceita:
+      - UniqueNames: T4_BAG,T4_BAG@1
+      - Nomes humanos: 'bolsa do adepto, capa letal'
+    Faz a resolução de nomes PT/EN -> UniqueName automaticamente.
+    """
+    return _buscar_precos_por_idioma(
+        items, cities, qualities, "pt_br", current_user, permitir_fallback_en=True
+    )
+
+
 @router.get("/price-by-name")
 def price_by_name(
     name: str = Query(..., description="Nome em PT-BR ou EN"),
@@ -98,7 +192,15 @@ def price_by_name(
     """
     Preço para um único item a partir de nome humano (PT/EN).
     """
-    itens = buscar_item_por_nome(name)
+    return price_by_name_pt(name=name, cities=cities, current_user=current_user)
+
+
+def _preco_por_nome(
+    name: str, cities: str, lang_key: str, permitir_fallback_en: bool = False
+):
+    itens = buscar_item_por_nome(name, lang_key)
+    if not itens and permitir_fallback_en and lang_key == "pt_br":
+        itens = buscar_item_por_nome(name, "en_us")
     if not itens:
         raise HTTPException(404, "Item não encontrado")
 
@@ -122,6 +224,24 @@ def price_by_name(
         "updated_at": cheapest["sell_price_min_date"],
         "all_prices": data[:10],
     }
+
+
+@router.get("/price-by-name/pt-br")
+def price_by_name_pt(
+    name: str = Query(..., description="Nome em PT-BR"),
+    cities: str = Query(",".join(settings.DEFAULT_CITIES)),
+    current_user=Depends(get_current_user),
+):
+    return _preco_por_nome(name, cities, "pt_br", permitir_fallback_en=True)
+
+
+@router.get("/price-by-name/en-us")
+def price_by_name_en(
+    name: str = Query(..., description="Nome em EN-US"),
+    cities: str = Query(",".join(settings.DEFAULT_CITIES)),
+    current_user=Depends(get_current_user),
+):
+    return _preco_por_nome(name, cities, "en_us")
 
 
 @router.get("/history/{item_id}")
@@ -167,6 +287,10 @@ def price_history(
 def my_items_prices(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
+    lang: str = Query(
+        "pt_br",
+        description="Idioma para resolver nomes não únicos (pt_br ou en_us)",
+    ),
 ):
     """
     Retorna os preços dos itens salvos pelo usuário.
@@ -180,12 +304,15 @@ def my_items_prices(
     if not raw_names:
         return []
 
+    lang_key = _normalize_lang(lang)
     resolved_names: List[str] = []
     for name in raw_names:
         if name.upper().startswith("T") and "_" in name:
             resolved_names.append(name.upper())
         else:
-            candidatos = buscar_item_por_nome(name)
+            candidatos = buscar_item_por_nome(name, lang_key)
+            if not candidatos and lang_key == "pt_br":
+                candidatos = buscar_item_por_nome(name, "en_us")
             if candidatos:
                 resolved_names.append(candidatos[0]["UniqueName"])
 

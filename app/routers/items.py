@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.models import UserItem
@@ -9,11 +9,17 @@ from app.utils.albion_index import buscar_item_por_nome
 router = APIRouter(prefix="/items", tags=["Itens do Usuário"])
 
 
-def resolve_to_unique_name(raw_name: str) -> str:
+def _normalize_lang(lang: str) -> str:
+    lang_norm = (lang or "").lower().replace("-", "_")
+    return lang_norm if lang_norm in ("pt_br", "en_us") else "pt_br"
+
+
+def resolve_to_unique_name(raw_name: str, lang: str = "pt_br") -> str:
     """
     Recebe um nome qualquer (PT/EN/UniqueName parcial) e tenta resolver
     para um UniqueName válido (ex: T4_BAG, T4_BAG@1).
     """
+    lang_key = _normalize_lang(lang)
     name = (raw_name or "").strip()
     if not name:
         raise HTTPException(400, "Nome do item é obrigatório")
@@ -23,7 +29,9 @@ def resolve_to_unique_name(raw_name: str) -> str:
         return name.upper()
 
     # Tenta resolver pelo índice PT/EN
-    candidatos = buscar_item_por_nome(name)
+    candidatos = buscar_item_por_nome(name, lang_key)
+    if not candidatos and lang_key == "pt_br":
+        candidatos = buscar_item_por_nome(name, "en_us")
     if not candidatos:
         raise HTTPException(404, "Item não encontrado na base do Albion")
 
@@ -33,6 +41,10 @@ def resolve_to_unique_name(raw_name: str) -> str:
 @router.post("/", response_model=ItemOut)
 def add_item(
     item: ItemCreate,
+    lang: str = Query(
+        "pt_br",
+        description="Idioma usado para nomes humanos (pt_br ou en_us)",
+    ),
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
@@ -44,7 +56,7 @@ def add_item(
     - Nome PT-BR: "Bolsa do Adepto"
     - Nome EN: "Adept's Bag"
     """
-    unique_name = resolve_to_unique_name(item.item_name)
+    unique_name = resolve_to_unique_name(item.item_name, lang)
 
     db_item = UserItem(user_id=user.id, item_name=unique_name)
     db.add(db_item)
