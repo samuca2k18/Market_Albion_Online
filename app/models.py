@@ -23,6 +23,7 @@ class UserItem(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     item_name = Column(String, nullable=False)
+    display_name = Column(String, nullable=True)  # nome amigável salvo do front
     created_at = Column(DateTime, server_default=func.now())
 
     user = relationship("User", back_populates="items")

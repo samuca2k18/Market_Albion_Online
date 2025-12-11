@@ -74,6 +74,12 @@ class ItemCreate(BaseModel):
         description="Nome interno do item no formato do jogo",
         examples=["T4_BAG", "T5_HEAD_PLATE_SET1"]
     )
+    display_name: Optional[str] = Field(
+        None,
+        max_length=150,
+        description="Nome amigável escolhido na busca (exibido ao usuário)",
+        examples=["Peixe-espada de Aço"]
+    )
 
     @field_validator("item_name")
     @classmethod
@@ -83,10 +89,19 @@ class ItemCreate(BaseModel):
             raise ValueError("Nome do item não pode estar vazio")
         return v.strip().upper()
 
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        val = v.strip()
+        return val or None
+
     model_config = {
         "json_schema_extra": {
             "example": {
-                "item_name": "T4_BAG"
+                "item_name": "T4_BAG",
+                "display_name": "Bolsa do Adepto"
             }
         }
     }
@@ -96,6 +111,10 @@ class ItemOut(BaseModel):
     """Schema para resposta de item."""
     id: int = Field(..., description="ID único do item")
     item_name: str = Field(..., description="Nome interno do item")
+    display_name: Optional[str] = Field(
+        None,
+        description="Nome amigável salvo"
+    )
     created_at: Optional[datetime] = Field(
         None,
         description="Data e hora de criação do item"
@@ -107,6 +126,7 @@ class ItemOut(BaseModel):
             "example": {
                 "id": 1,
                 "item_name": "T4_BAG",
+                "display_name": "Bolsa do Adepto",
                 "created_at": "2024-01-15T10:30:00"
             }
         }

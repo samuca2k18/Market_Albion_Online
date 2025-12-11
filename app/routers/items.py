@@ -58,7 +58,11 @@ def add_item(
     """
     unique_name = resolve_to_unique_name(item.item_name, lang)
 
-    db_item = UserItem(user_id=user.id, item_name=unique_name)
+    db_item = UserItem(
+        user_id=user.id,
+        item_name=unique_name,
+        display_name=item.display_name,
+    )
     db.add(db_item)
     db.commit()
     db.refresh(db_item)

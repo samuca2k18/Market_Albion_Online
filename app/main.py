@@ -3,8 +3,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth, items, albion, health
 from app.database import Base, engine
+from sqlalchemy import inspect, text
 
 Base.metadata.create_all(bind=engine)
+
+# Migração leve: adiciona display_name se não existir (SQLite/Postgres)
+with engine.connect() as conn:
+    inspector = inspect(conn)
+    cols = {c["name"] for c in inspector.get_columns("user_items")}
+    if "display_name" not in cols:
+        conn.execute(text("ALTER TABLE user_items ADD COLUMN display_name VARCHAR"))
+        conn.commit()
 
 app = FastAPI(
     title="Albion Market API",
