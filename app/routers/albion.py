@@ -300,6 +300,7 @@ def my_items_prices(
     """
     user_items = db.query(UserItem).filter(UserItem.user_id == current_user.id).all()
     raw_names = [item.item_name for item in user_items]
+    display_map = {item.item_name.upper(): item.display_name for item in user_items}
 
     if not raw_names:
         return []
@@ -325,9 +326,11 @@ def my_items_prices(
     for entry in raw_data:
         if entry.get("sell_price_min", 0) <= 0:
             continue
+        display_name = display_map.get(entry["item_id"].upper())
         result.append(
             {
                 "item_name": entry["item_id"],  # sempre UniqueName aqui
+                "display_name": display_name,
                 "city": entry["city"],
                 "price": entry["sell_price_min"],
                 "quality": entry["quality"],
