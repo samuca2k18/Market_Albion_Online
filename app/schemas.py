@@ -52,6 +52,7 @@ class UserOut(BaseModel):
     id: int = Field(..., description="ID único do usuário")
     username: str = Field(..., description="Nome de usuário")
     email: EmailStr = Field(..., description="E-mail do usuário")
+    is_verified: bool = Field(..., description="Indica se o e-mail já foi verificado")
 
     model_config = {
         "from_attributes": True,
@@ -59,7 +60,8 @@ class UserOut(BaseModel):
             "example": {
                 "id": 1,
                 "username": "johndoe",
-                "email": "johndoe@example.com"
+                "email": "johndoe@example.com",
+                "is_verified": True
             }
         }
     }
@@ -131,6 +133,24 @@ class ItemOut(BaseModel):
             }
         }
     }
+
+
+class ResendVerificationRequest(BaseModel):
+    """Payload para solicitar reenvio do link de verificação."""
+    email: EmailStr = Field(
+        ...,
+        description="E-mail cadastrado",
+        examples=["usuario@example.com"]
+    )
+
+
+class VerificationMessage(BaseModel):
+    """Resposta padrão para fluxos de verificação de e-mail."""
+    message: str = Field(
+        ...,
+        description="Mensagem descritiva sobre o estado da verificação",
+        examples=["E-mail verificado com sucesso. Você já pode fazer login."]
+    )
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"

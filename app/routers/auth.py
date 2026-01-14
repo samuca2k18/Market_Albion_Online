@@ -9,7 +9,12 @@ from jose import JWTError, jwt
 
 from app.database import SessionLocal
 from app.models import User
-from app.schemas import UserCreate, UserOut
+from app.schemas import (
+    UserCreate,
+    UserOut,
+    ResendVerificationRequest,
+    VerificationMessage,
+)
 from app.auth import (
     get_password_hash,
     verify_password,
@@ -106,6 +111,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 @router.get(
     "/verify-email",
     summary="Confirmar e-mail pelo token",
+    response_model=VerificationMessage,
 )
 def verify_email(token: str = Query(..., min_length=10), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.verification_token == token).first()
@@ -133,8 +139,13 @@ def verify_email(token: str = Query(..., min_length=10), db: Session = Depends(g
 @router.post(
     "/resend-verification",
     summary="Reenviar link de verificação",
+    response_model=VerificationMessage,
 )
-def resend_verification(email: str, db: Session = Depends(get_db)):
+def resend_verification(
+    payload: ResendVerificationRequest,
+    db: Session = Depends(get_db),
+):
+    email = payload.email
     # Resposta neutra para não revelar se o email existe
     neutral = {"message": "Se o e-mail existir, enviaremos um link de verificação."}
 
