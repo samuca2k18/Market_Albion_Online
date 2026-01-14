@@ -1,38 +1,159 @@
 # app/routers/auth.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from app.schemas import UserCreate, UserOut, Token
+from sqlalchemy.exc import IntegrityError
+from jose import JWTError, jwt
+
+from app.database import SessionLocal
 from app.models import User
-from app.core.security import get_password_hash, verify_password, create_access_token
-from app.dependencies import get_db, get_current_user
+from app.schemas import UserCreate, UserOut
+from app.auth import (
+    get_password_hash,
+    verify_password,
+    create_access_token,
+    SECRET_KEY,
+    ALGORITHM,
+)
+from app.services.email_verify import generate_verification_token, token_expiration
+from app.services.mailer import send_verification_email
 
 router = APIRouter(tags=["Autenticação"])
 
-@router.post("/signup", response_model=UserOut, status_code=201)
-def signup(user_data: UserCreate, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.username == user_data.username).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="Usuário já existe")
-    db_user = db.query(User).filter(User.email == user_data.email).first()
-    if db_user:
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@router.post(
+    "/signup",
+    response_model=UserOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Cadastrar novo usuário (envia verificação por e-mail)",
+)
+def signup(user: UserCreate, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(
+        (User.username == user.username) | (User.email == user.email)
+    ).first()
+
+    if existing:
+        if existing.username == user.username:
+            raise HTTPException(status_code=400, detail="Nome de usuário já cadastrado")
         raise HTTPException(status_code=400, detail="E-mail já cadastrado")
 
-    hashed = get_password_hash(user_data.password)
-    new_user = User(username=user_data.username, email=user_data.email, hashed_password=hashed)
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    token = generate_verification_token()
+
+    try:
+        new_user = User(
+            username=user.username,
+            email=user.email,
+            hashed_password=get_password_hash(user.password),
+            is_verified=False,
+            verification_token=token,
+            verification_token_expires_at=token_expiration(24),
+        )
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Erro ao cadastrar usuário.")
+
+    # Enviar e-mail (se SMTP não estiver configurado, avisa)
+    try:
+        send_verification_email(new_user.email, token)
+    except Exception as e:
+        # Você pode escolher: manter usuário criado e só avisar, ou desfazer.
+        # Aqui vamos manter e avisar pra configurar SMTP.
+        raise HTTPException(
+            status_code=500,
+            detail=f"Usuário criado, mas falhou ao enviar e-mail de verificação: {e}"
+        )
+
     return new_user
 
-@router.post("/login", response_model=Token)
+
+@router.post(
+    "/login",
+    summary="Fazer login (bloqueado se e-mail não verificado)",
+)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Usuário ou senha incorretos")
-    token = create_access_token({"sub": user.username})
-    return {"access_token": token, "token_type": "bearer"}
 
-@router.get("/me", response_model=UserOut)
-def me(current_user: User = Depends(get_current_user)):
-    return current_user
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuário ou senha incorretos",
+        )
+
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="E-mail não verificado. Verifique seu e-mail antes de entrar.",
+        )
+
+    access_token = create_access_token({"sub": user.username})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.get(
+    "/verify-email",
+    summary="Confirmar e-mail pelo token",
+)
+def verify_email(token: str = Query(..., min_length=10), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.verification_token == token).first()
+
+    if not user:
+        raise HTTPException(status_code=400, detail="Token inválido")
+
+    if user.is_verified:
+        return {"message": "E-mail já verificado"}
+
+    expires_at = user.verification_token_expires_at
+    now = datetime.now(timezone.utc)
+
+    if not expires_at or expires_at < now:
+        raise HTTPException(status_code=400, detail="Token expirado. Solicite um novo.")
+
+    user.is_verified = True
+    user.verification_token = None
+    user.verification_token_expires_at = None
+    db.commit()
+
+    return {"message": "E-mail verificado com sucesso. Você já pode fazer login."}
+
+
+@router.post(
+    "/resend-verification",
+    summary="Reenviar link de verificação",
+)
+def resend_verification(email: str, db: Session = Depends(get_db)):
+    # Resposta neutra para não revelar se o email existe
+    neutral = {"message": "Se o e-mail existir, enviaremos um link de verificação."}
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        return neutral
+
+    if user.is_verified:
+        return {"message": "E-mail já verificado."}
+
+    token = generate_verification_token()
+    user.verification_token = token
+    user.verification_token_expires_at = token_expiration(24)
+    db.commit()
+
+    try:
+        send_verification_email(user.email, token)
+    except:
+        # não expõe erro real para o atacante
+        return neutral
+
+    return neutral
