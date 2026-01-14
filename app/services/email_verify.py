@@ -9,3 +9,4 @@ def generate_verification_token() -> str:
 
 def token_expiration(hours: int = 24) -> datetime:
     return datetime.now(timezone.utc) + timedelta(hours=hours)
+

@@ -36,3 +36,4 @@ Se você não solicitou esse cadastro, ignore este e-mail.
         server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
         server.sendmail(SMTP_FROM, [to_email], msg.as_string())
+
