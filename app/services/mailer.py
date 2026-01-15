@@ -64,6 +64,17 @@ def _send_via_resend(to_email: str, subject: str, body: str) -> None:
 def _send_via_smtp(to_email: str, subject: str, body: str) -> None:
     """Envia e-mail usando SMTP direto."""
     import logging
+    import os
+    
+    # Verifica se está rodando no Render
+    is_render = os.getenv("RENDER") is not None or "render.com" in os.getenv("RENDER_EXTERNAL_URL", "")
+    
+    if is_render:
+        raise RuntimeError(
+            "SMTP não funciona no Render (porta 587 bloqueada). "
+            "Configure RESEND_API_KEY e RESEND_FROM_EMAIL para usar Resend API. "
+            "Veja: SOLUCAO_RENDER_SMTP.md"
+        )
     
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM]):
         missing = []
@@ -76,7 +87,8 @@ def _send_via_smtp(to_email: str, subject: str, body: str) -> None:
         if not SMTP_FROM:
             missing.append("SMTP_FROM")
         raise RuntimeError(
-            f"SMTP não configurado. Variáveis faltando: {', '.join(missing)}"
+            f"SMTP não configurado. Variáveis faltando: {', '.join(missing)}. "
+            "Para usar no Render, configure RESEND_API_KEY ao invés de SMTP."
         )
 
     msg = MIMEText(body, "plain", "utf-8")
@@ -133,10 +145,10 @@ Para confirmar seu e-mail, clique no link abaixo:
 Se você não solicitou esse cadastro, ignore este e-mail.
 """
 
-    # Tenta Resend primeiro (melhor para produção)
+    # Tenta Resend primeiro (melhor para produção, especialmente no Render)
     if RESEND_API_KEY:
         _send_via_resend(to_email, subject, body)
     else:
-        # Fallback para SMTP
+        # Fallback para SMTP (não funciona no Render)
         _send_via_smtp(to_email, subject, body)
 
