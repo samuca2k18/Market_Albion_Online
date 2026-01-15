@@ -2,6 +2,24 @@
 
 Este documento explica **exatamente** onde configurar cada variável de ambiente.
 
+## 🎯 Resumo Rápido
+
+**Duas variáveis diferentes para dois propósitos:**
+
+1. **`APP_BASE_URL`** (Backend/Render) → URL do **FRONTEND**
+   - Usado para gerar o link no email de verificação
+   - Deve apontar para o Vercel (frontend)
+   - Exemplo: `https://marketalbion.vercel.app`
+
+2. **`VITE_API_BASE_URL`** (Frontend/Vercel) → URL do **BACKEND**
+   - Usado pelo frontend para fazer chamadas à API
+   - Deve apontar para o Render (backend)
+   - Exemplo: `https://market-albion-online.onrender.com`
+
+**Por que são diferentes?**
+- O email precisa de um link que abre no **frontend** (página `/verify-email`)
+- O frontend precisa saber onde está o **backend** (para chamadas API)
+
 ---
 
 ## 📍 Onde Configurar

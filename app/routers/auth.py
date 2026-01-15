@@ -163,8 +163,12 @@ def resend_verification(
 
     try:
         send_verification_email(user.email, token)
-    except:
-        # não expõe erro real para o atacante
+    except Exception as e:
+        # Log do erro para debug (não expõe para o usuário)
+        import logging
+        logging.error(f"Erro ao reenviar email para {email}: {str(e)}")
+        # Retorna resposta neutra mesmo em caso de erro
+        # Isso evita revelar se o email existe e previne 502
         return neutral
 
     return neutral

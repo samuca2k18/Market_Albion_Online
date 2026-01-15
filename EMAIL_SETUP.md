@@ -36,8 +36,9 @@ SMTP_USER=marketalbionbr@gmail.com
 SMTP_PASS=abcd efgh ijkl mnop  # Cole a senha de app aqui
 SMTP_FROM=marketalbionbr@gmail.com
 
-# URL base (local)
-APP_BASE_URL=http://localhost:8000
+# URL base do FRONTEND (importante!)
+# O link no email vai para a página de verificação do frontend
+APP_BASE_URL=http://localhost:5173  # URL do frontend local (Vite)
 ```
 
 #### Para Produção (Render/Vercel):
@@ -51,7 +52,10 @@ SMTP_PORT=587
 SMTP_USER=marketalbionbr@gmail.com
 SMTP_PASS=abcd efgh ijkl mnop  # Senha de app do Gmail
 SMTP_FROM=marketalbionbr@gmail.com
-APP_BASE_URL=https://seu-backend.onrender.com
+
+# URL base do FRONTEND (importante!)
+# O link no email vai para a página de verificação do frontend
+APP_BASE_URL=https://seu-frontend.vercel.app  # URL do frontend (Vercel)
 ```
 
 3. **Salve** e faça deploy
@@ -123,8 +127,9 @@ SMTP_USER=marketalbionbr@gmail.com
 SMTP_PASS=abcd efgh ijkl mnop
 SMTP_FROM=marketalbionbr@gmail.com
 
-# URL base
-APP_BASE_URL=http://localhost:8000
+# URL base do FRONTEND (importante!)
+# O link no email vai para a página de verificação do frontend
+APP_BASE_URL=http://localhost:5173  # URL do frontend local (Vite)
 ```
 
 ### Variáveis no Render:
@@ -135,7 +140,7 @@ SMTP_PORT = 587
 SMTP_USER = marketalbionbr@gmail.com
 SMTP_PASS = abcd efgh ijkl mnop
 SMTP_FROM = marketalbionbr@gmail.com
-APP_BASE_URL = https://seu-backend.onrender.com
+APP_BASE_URL = https://seu-frontend.vercel.app  # URL do FRONTEND (Vercel)
 ```
 
 ---

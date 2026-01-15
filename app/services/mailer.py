@@ -73,10 +73,16 @@ def _send_via_smtp(to_email: str, subject: str, body: str) -> None:
     msg["From"] = SMTP_FROM
     msg["To"] = to_email
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-        server.starttls()
-        server.login(SMTP_USER, SMTP_PASS)
-        server.sendmail(SMTP_FROM, [to_email], msg.as_string())
+    # Timeout de 10 segundos para evitar 502
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_FROM, [to_email], msg.as_string())
+    except smtplib.SMTPException as e:
+        raise RuntimeError(f"Erro ao enviar e-mail via SMTP: {str(e)}")
+    except Exception as e:
+        raise RuntimeError(f"Erro de conexão SMTP: {str(e)}")
 
 
 def send_verification_email(to_email: str, token: str) -> None:
