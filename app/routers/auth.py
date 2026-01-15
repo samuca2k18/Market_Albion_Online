@@ -1,7 +1,7 @@
 # app/routers/auth.py
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -42,7 +42,11 @@ def get_db():
     status_code=status.HTTP_201_CREATED,
     summary="Cadastrar novo usuário (envia verificação por e-mail)",
 )
-def signup(user: UserCreate, db: Session = Depends(get_db)):
+def signup(
+    user: UserCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     existing = db.query(User).filter(
         (User.username == user.username) | (User.email == user.email)
     ).first()
@@ -71,16 +75,15 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=400, detail="Erro ao cadastrar usuário.")
 
-    # Enviar e-mail (se SMTP não estiver configurado, avisa)
-    try:
-        send_verification_email(new_user.email, token)
-    except Exception as e:
-        # Você pode escolher: manter usuário criado e só avisar, ou desfazer.
-        # Aqui vamos manter e avisar pra configurar SMTP.
-        raise HTTPException(
-            status_code=500,
-            detail=f"Usuário criado, mas falhou ao enviar e-mail de verificação: {e}"
-        )
+    # Envia e-mail em background para não travar a requisição
+    def send_email_task():
+        try:
+            send_verification_email(new_user.email, token)
+        except Exception as e:
+            import logging
+            logging.error(f"Erro ao enviar email de verificação para {new_user.email}: {str(e)}")
+
+    background_tasks.add_task(send_email_task)
 
     return new_user
 
@@ -143,6 +146,7 @@ def verify_email(token: str = Query(..., min_length=10), db: Session = Depends(g
 )
 def resend_verification(
     payload: ResendVerificationRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     email = payload.email
@@ -161,14 +165,14 @@ def resend_verification(
     user.verification_token_expires_at = token_expiration(24)
     db.commit()
 
-    try:
-        send_verification_email(user.email, token)
-    except Exception as e:
-        # Log do erro para debug (não expõe para o usuário)
-        import logging
-        logging.error(f"Erro ao reenviar email para {email}: {str(e)}")
-        # Retorna resposta neutra mesmo em caso de erro
-        # Isso evita revelar se o email existe e previne 502
-        return neutral
+    # Envia email em background para não travar a requisição
+    def send_email_task():
+        try:
+            send_verification_email(user.email, token)
+        except Exception as e:
+            import logging
+            logging.error(f"Erro ao reenviar email para {email}: {str(e)}")
+
+    background_tasks.add_task(send_email_task)
 
     return neutral
