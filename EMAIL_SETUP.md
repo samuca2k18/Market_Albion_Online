@@ -1,135 +1,166 @@
-# 📧 Configuração de Envio de E-mails
+# 📧 Configuração de Envio de E-mails com Gmail
 
-Este projeto suporta **dois modos** de envio de e-mail:
+Este projeto usa **SMTP do Gmail** para envio de e-mails de verificação.
 
-## 🚀 Modo 1: Resend API (Recomendado para Produção)
+## ⚡ Configuração Rápida
 
-**Melhor para:** Render, Vercel, Railway, ou qualquer plataforma cloud.
+### Passo 1: Obter Senha de App do Gmail
 
-### Vantagens:
-- ✅ Mais confiável (não depende de servidor SMTP próprio)
-- ✅ Melhor deliverability (menos chance de ir para spam)
-- ✅ Dashboard com estatísticas de envio
-- ✅ Fácil de configurar (apenas API key)
+**IMPORTANTE:** Você não pode usar a senha normal da conta. Precisa criar uma "Senha de App".
 
-### Como configurar:
+1. **Acesse:** https://myaccount.google.com/apppasswords
+2. **Faça login** com `marketalbionbr@gmail.com`
+3. **Se não tiver "Verificação em 2 etapas" ativada:**
+   - Vá em: https://myaccount.google.com/security
+   - Ative "Verificação em 2 etapas" primeiro
+   - Volte para criar a senha de app
+4. **Criar Senha de App:**
+   - Em "Selecione o app" → escolha **"E-mail"**
+   - Em "Selecione o dispositivo" → escolha **"Outro"** e digite: `Albion Market`
+   - Clique em **"Gerar"**
+5. **Copie a senha gerada:**
+   - Será algo como: `abcd efgh ijkl mnop` (16 caracteres)
+   - Você pode copiar com ou sem espaços
 
-1. **Criar conta no Resend:**
-   - Acesse: https://resend.com
-   - Crie uma conta gratuita (100 e-mails/dia grátis)
-   - Vá em **API Keys** e crie uma nova chave
+### Passo 2: Configurar Variáveis de Ambiente
 
-2. **Configurar domínio (opcional mas recomendado):**
-   - Vá em **Domains** e adicione seu domínio
-   - Configure os registros DNS conforme instruções
-   - Isso melhora a deliverability
+#### Para Desenvolvimento Local (.env):
 
-3. **Configurar variáveis de ambiente no Render/Vercel:**
-
-```env
-# Resend API (recomendado para produção)
-RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxx
-RESEND_FROM_EMAIL=noreply@seudominio.com
-
-# URL base da aplicação (importante!)
-APP_BASE_URL=https://seu-backend.onrender.com
-```
-
-### Instalar dependência (se necessário):
-
-```bash
-pip install httpx
-```
-
----
-
-## 🔧 Modo 2: SMTP Direto
-
-**Melhor para:** Desenvolvimento local ou servidor próprio com SMTP configurado.
-
-### Vantagens:
-- ✅ Funciona sem serviços externos
-- ✅ Bom para desenvolvimento/testes
-- ✅ Pode usar Gmail, Outlook, etc. (não recomendado para produção)
-
-### Como configurar:
-
-1. **Para desenvolvimento local (Gmail exemplo):**
+Crie um arquivo `.env` na raiz do projeto:
 
 ```env
-# SMTP Configuration
+# SMTP Gmail
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USER=seu-email@gmail.com
-SMTP_PASS=sua-senha-de-app  # Use "Senha de App" do Gmail, não a senha normal!
-SMTP_FROM=seu-email@gmail.com
+SMTP_USER=marketalbionbr@gmail.com
+SMTP_PASS=abcd efgh ijkl mnop  # Cole a senha de app aqui
+SMTP_FROM=marketalbionbr@gmail.com
 
 # URL base (local)
 APP_BASE_URL=http://localhost:8000
 ```
 
-2. **Para produção com servidor SMTP próprio:**
+#### Para Produção (Render/Vercel):
+
+1. Vá em **Environment Variables** no seu serviço
+2. Adicione estas variáveis:
 
 ```env
-SMTP_HOST=smtp.seudominio.com
+SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USER=noreply@seudominio.com
-SMTP_PASS=senha-segura
-SMTP_FROM=noreply@seudominio.com
-
+SMTP_USER=marketalbionbr@gmail.com
+SMTP_PASS=abcd efgh ijkl mnop  # Senha de app do Gmail
+SMTP_FROM=marketalbionbr@gmail.com
 APP_BASE_URL=https://seu-backend.onrender.com
 ```
 
-### ⚠️ Importante sobre Gmail:
+3. **Salve** e faça deploy
 
-Se usar Gmail, você precisa:
-1. Ativar "Verificação em 2 etapas"
-2. Criar uma "Senha de App" em: https://myaccount.google.com/apppasswords
-3. Usar essa senha de app (não a senha normal da conta)
+### Passo 3: Testar
 
----
-
-## 🎯 Qual modo usar?
-
-### Desenvolvimento Local:
-- Use **SMTP** com Gmail ou servidor local
-
-### Produção (Render/Vercel):
-- Use **Resend API** (mais confiável e fácil)
+1. Inicie o servidor
+2. Crie um novo usuário via `/signup`
+3. Verifique se o e-mail de verificação foi enviado para a caixa de entrada
 
 ---
 
-## 📝 Exemplo de Configuração no Render
+## 🔧 Solução de Problemas
 
-1. Vá em **Environment** no seu serviço
-2. Adicione as variáveis:
+### Erro: "SMTP não configurado"
+
+**Causa:** Variáveis de ambiente não estão configuradas.
+
+**Solução:**
+- Verifique se todas as variáveis `SMTP_*` estão definidas
+- No Render/Vercel, confirme que salvou as variáveis corretamente
+
+### Erro: "Authentication failed" ou "Username and Password not accepted"
+
+**Causa:** Senha de app incorreta ou não foi criada.
+
+**Solução:**
+1. Certifique-se de usar a **Senha de App**, não a senha normal
+2. Verifique se a "Verificação em 2 etapas" está ativada
+3. Gere uma nova senha de app se necessário
+4. No `SMTP_PASS`, você pode usar com ou sem espaços
+
+### E-mail não chega / Vai para spam
+
+**Causa:** Gmail pode marcar como spam em alguns casos.
+
+**Solução:**
+- Verifique a pasta de **Spam/Lixo Eletrônico**
+- Peça para o usuário marcar como "Não é spam"
+- Para produção, considere usar um serviço profissional (Resend, SendGrid)
+
+### Limite de envio do Gmail
+
+**Limites do Gmail gratuito:**
+- **500 e-mails/dia** para contas pessoais
+- **2000 e-mails/dia** para contas Google Workspace
+
+Se precisar enviar mais, considere:
+- Criar múltiplas contas Gmail
+- Usar um serviço profissional (Resend, SendGrid)
+
+---
+
+## 📝 Exemplo Completo
+
+### Arquivo .env (desenvolvimento):
+
+```env
+# Banco de Dados
+DATABASE_URL=postgresql+psycopg2://...
+
+# JWT
+SECRET_KEY=sua_chave_secreta_aqui
+
+# SMTP Gmail
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=marketalbionbr@gmail.com
+SMTP_PASS=abcd efgh ijkl mnop
+SMTP_FROM=marketalbionbr@gmail.com
+
+# URL base
+APP_BASE_URL=http://localhost:8000
+```
+
+### Variáveis no Render:
 
 ```
-RESEND_API_KEY=re_xxxxxxxxxxxxx
-RESEND_FROM_EMAIL=noreply@seudominio.com
-APP_BASE_URL=https://seu-backend.onrender.com
+SMTP_HOST = smtp.gmail.com
+SMTP_PORT = 587
+SMTP_USER = marketalbionbr@gmail.com
+SMTP_PASS = abcd efgh ijkl mnop
+SMTP_FROM = marketalbionbr@gmail.com
+APP_BASE_URL = https://seu-backend.onrender.com
 ```
 
-3. Salve e faça deploy
+---
+
+## 💡 Dicas
+
+1. **Segurança:**
+   - Nunca commite o arquivo `.env` no Git
+   - A senha de app é específica para este uso, pode ser revogada a qualquer momento
+
+2. **Testes:**
+   - Teste primeiro localmente antes de fazer deploy
+   - Use um e-mail de teste para verificar se está funcionando
+
+3. **Produção:**
+   - O Gmail funciona bem para começar
+   - Se o projeto crescer, considere migrar para Resend ou SendGrid para melhor deliverability
 
 ---
 
-## 🧪 Testando
+## 🚀 Alternativa: Resend API (Futuro)
 
-Após configurar, teste criando um novo usuário. O e-mail de verificação deve ser enviado automaticamente.
+Se quiser usar um serviço profissional no futuro:
 
-Se houver erro, verifique:
-- ✅ Variáveis de ambiente configuradas corretamente
-- ✅ No caso do Resend: API key válida e domínio verificado (ou use o domínio de teste)
-- ✅ No caso do SMTP: credenciais corretas e porta não bloqueada
-
----
-
-## 💡 Dica
-
-O código automaticamente escolhe o modo:
-- Se `RESEND_API_KEY` estiver configurado → usa Resend
-- Caso contrário → usa SMTP
-
-Isso permite desenvolvimento local com SMTP e produção com Resend sem mudar código!
-
+1. Crie conta em: https://resend.com
+2. Configure `RESEND_API_KEY` e `RESEND_FROM_EMAIL`
+3. O código automaticamente usará Resend se essas variáveis estiverem configuradas
+4. Se não estiverem, usará SMTP do Gmail (como está agora)
