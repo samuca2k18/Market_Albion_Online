@@ -167,11 +167,13 @@ def resend_verification(
 
     # Envia email em background para não travar a requisição
     def send_email_task():
+        import logging
         try:
+            logging.info(f"Iniciando envio de email de verificação para {email}")
             send_verification_email(user.email, token)
+            logging.info(f"Email de verificação enviado com sucesso para {email}")
         except Exception as e:
-            import logging
-            logging.error(f"Erro ao reenviar email para {email}: {str(e)}")
+            logging.error(f"ERRO ao reenviar email para {email}: {str(e)}", exc_info=True)
 
     background_tasks.add_task(send_email_task)
 

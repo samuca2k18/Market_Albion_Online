@@ -63,9 +63,20 @@ def _send_via_resend(to_email: str, subject: str, body: str) -> None:
 
 def _send_via_smtp(to_email: str, subject: str, body: str) -> None:
     """Envia e-mail usando SMTP direto."""
+    import logging
+    
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM]):
+        missing = []
+        if not SMTP_HOST:
+            missing.append("SMTP_HOST")
+        if not SMTP_USER:
+            missing.append("SMTP_USER")
+        if not SMTP_PASS:
+            missing.append("SMTP_PASS")
+        if not SMTP_FROM:
+            missing.append("SMTP_FROM")
         raise RuntimeError(
-            "SMTP não configurado. Configure SMTP_HOST, SMTP_USER, SMTP_PASS e SMTP_FROM."
+            f"SMTP não configurado. Variáveis faltando: {', '.join(missing)}"
         )
 
     msg = MIMEText(body, "plain", "utf-8")
@@ -73,15 +84,26 @@ def _send_via_smtp(to_email: str, subject: str, body: str) -> None:
     msg["From"] = SMTP_FROM
     msg["To"] = to_email
 
+    logging.info(f"Conectando ao SMTP {SMTP_HOST}:{SMTP_PORT} como {SMTP_USER}")
+    
     # Timeout de 10 segundos para evitar 502
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+            logging.info("Iniciando TLS...")
             server.starttls()
+            logging.info("Fazendo login no SMTP...")
             server.login(SMTP_USER, SMTP_PASS)
+            logging.info(f"Enviando email para {to_email}...")
             server.sendmail(SMTP_FROM, [to_email], msg.as_string())
+            logging.info(f"Email enviado com sucesso para {to_email}")
+    except smtplib.SMTPAuthenticationError as e:
+        logging.error(f"Erro de autenticação SMTP: {str(e)}")
+        raise RuntimeError(f"Erro de autenticação SMTP. Verifique SMTP_USER e SMTP_PASS: {str(e)}")
     except smtplib.SMTPException as e:
+        logging.error(f"Erro SMTP: {str(e)}")
         raise RuntimeError(f"Erro ao enviar e-mail via SMTP: {str(e)}")
     except Exception as e:
+        logging.error(f"Erro de conexão SMTP: {str(e)}", exc_info=True)
         raise RuntimeError(f"Erro de conexão SMTP: {str(e)}")
 
 
