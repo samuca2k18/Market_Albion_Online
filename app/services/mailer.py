@@ -12,7 +12,7 @@ import smtplib
 
 
 # === Base URL do seu backend ou frontend (onde fica a rota de verificação) ===
-APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:8000").rstrip("/")
 
 # === RESEND (produção) ===
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
@@ -107,7 +107,7 @@ def _send_via_smtp(to_email: str, subject: str, text: str) -> None:
 
 def send_verification_email(to_email: str, token: str) -> None:
     """Envia e-mail de verificação."""
-    verify_link = f"{APP_BASE_URL}/verify-email?token={token}"
+    verify_link = f"{FRONTEND_URL}/verify-email?token={token}"
 
     subject = "Confirme seu e-mail - Albion Market"
 
