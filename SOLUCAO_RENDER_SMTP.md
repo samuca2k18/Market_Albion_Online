@@ -156,3 +156,4 @@ Mas para começar, `onboarding@resend.dev` funciona perfeitamente!
 
 **Pronto!** Com Resend API, o email vai funcionar perfeitamente no Render! 🚀
 
+
