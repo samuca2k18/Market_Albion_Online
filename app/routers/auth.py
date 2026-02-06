@@ -6,7 +6,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from jose import JWTError, jwt
-
+from app.core.security import get_current_user
 from app.database import SessionLocal
 from app.models import User
 from app.schemas import (
@@ -178,3 +178,7 @@ def resend_verification(
     background_tasks.add_task(send_email_task)
 
     return neutral
+    
+@router.get("/me", response_model=UserOut, summary="Retorna o usuário logado")
+def me(current_user: User = Depends(get_current_user)):
+    return current_user

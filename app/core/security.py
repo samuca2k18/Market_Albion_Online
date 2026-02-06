@@ -4,7 +4,14 @@ from typing import Optional
 
 from passlib.context import CryptContext
 from jose import jwt
+
 from app.core.config import settings
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError
+from sqlalchemy.orm import Session
+from app.database import SessionLocal
+from app.models import User
 
 # ==================== HASH DE SENHA ====================
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
@@ -49,3 +56,37 @@ def create_access_token(
 def create_refresh_token(data: dict) -> str:
     """Token de refresh (opcional, para futuro)"""
     return create_access_token(data, expires_delta=timedelta(days=30))
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Token inválido ou expirado",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if not username:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise credentials_exception
+
+    return user
