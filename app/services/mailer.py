@@ -140,3 +140,57 @@ def send_verification_email(to_email: str, token: str) -> None:
 
     # Fallback SMTP (apenas fora do Render)
     _send_via_smtp(to_email, subject, text=text)
+
+def send_price_alert_email(
+    to_email: str,
+    item: str,
+    current_price: float,
+    city: str | None,
+    expected_price: float | None = None,
+    percent_below: float = 0,
+) -> None:
+    """
+    Envia e-mail de alerta de preço usando a mesma estratégia do e-mail de verificação:
+    tenta Resend primeiro e, se não estiver configurado, faz fallback para SMTP.
+    """
+    subject = "🚨 Oportunidade detectada no Albion!"
+    city_txt = city or "Qualquer"
+
+    if expected_price is not None:
+        text = (
+            "Oportunidade detectada!\n\n"
+            f"Item: {item}\n"
+            f"Preço atual: {current_price:.0f}\n"
+            f"Baseline (IA/histórico): ~{expected_price:.0f}\n"
+            f"Regra: caiu {percent_below:.0f}% ou mais\n"
+            f"Cidade: {city_txt}\n"
+        )
+        html = f"""
+        <h3>Oportunidade detectada!</h3>
+        <p><b>Item:</b> {item}</p>
+        <p><b>Preço atual:</b> {current_price:.0f}</p>
+        <p><b>Baseline (IA/histórico):</b> ~{expected_price:.0f}</p>
+        <p><b>Regra:</b> caiu {percent_below:.0f}% ou mais</p>
+        <p><b>Cidade:</b> {city_txt}</p>
+        """
+    else:
+        text = (
+            "Oportunidade detectada!\n\n"
+            f"Item: {item}\n"
+            f"Preço atual: {current_price:.0f}\n"
+            f"Cidade: {city_txt}\n"
+        )
+        html = f"""
+        <h3>Oportunidade detectada!</h3>
+        <p><b>Item:</b> {item}</p>
+        <p><b>Preço atual:</b> {current_price:.0f}</p>
+        <p><b>Cidade:</b> {city_txt}</p>
+        """
+
+    # Sempre tenta Resend primeiro (produção)
+    if RESEND_API_KEY and RESEND_FROM_EMAIL:
+        _send_via_resend(to_email, subject, text=text, html=html)
+        return
+
+    # Fallback SMTP (apenas fora do Render)
+    _send_via_smtp(to_email, subject, text=text)
