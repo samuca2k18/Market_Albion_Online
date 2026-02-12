@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 from app.database import Base, engine
-
+from app.routers import alerts
 from app.routers import auth, items, albion, health
 
 Base.metadata.create_all(bind=engine)
@@ -50,6 +50,7 @@ app.include_router(auth.router)
 app.include_router(items.router)
 app.include_router(albion.router)
 app.include_router(health.router)
+app.include_router(alerts.router)
 
 @app.get("/")
 def root():
