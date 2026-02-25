@@ -1,0 +1,36 @@
+name: 🐍 Backend CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: backend-tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout do código
+        uses: actions/checkout@v4
+
+      - name: 🐍 Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: 📦 Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov httpx
+
+      - name: 🧪 Rodar testes + cobertura
+        env:
+          DATABASE_URL: "sqlite:///./test.db"
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          ALGORITHM: "HS256"
+        run: |
+          pytest tests/ -v --cov=app --cov-report=term-missing
