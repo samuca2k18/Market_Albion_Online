@@ -1,13 +1,14 @@
 # app/routers/auth.py
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from jose import JWTError, jwt
-from app.core.security import get_current_user
-from app.database import SessionLocal
+
+from app.core.limiter import limiter
+from app.dependencies import get_db, get_current_user
 from app.models import User
 from app.schemas import (
     UserCreate,
@@ -19,6 +20,7 @@ from app.core.security import (
     get_password_hash,
     verify_password,
     create_access_token,
+    create_refresh_token,
     SECRET_KEY,
     ALGORITHM,
 )
@@ -28,21 +30,15 @@ from app.services.mailer import send_verification_email
 router = APIRouter(tags=["Autenticação"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 @router.post(
     "/signup",
     response_model=UserOut,
     status_code=status.HTTP_201_CREATED,
     summary="Cadastrar novo usuário (envia verificação por e-mail)",
 )
+@limiter.limit("3/minute")
 def signup(
+    request: Request,
     user: UserCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -75,7 +71,6 @@ def signup(
         db.rollback()
         raise HTTPException(status_code=400, detail="Erro ao cadastrar usuário.")
 
-    # Envia e-mail em background para não travar a requisição
     def send_email_task():
         try:
             send_verification_email(new_user.email, token)
@@ -84,7 +79,6 @@ def signup(
             logging.error(f"Erro ao enviar email de verificação para {new_user.email}: {str(e)}")
 
     background_tasks.add_task(send_email_task)
-
     return new_user
 
 
@@ -92,7 +86,12 @@ def signup(
     "/login",
     summary="Fazer login (bloqueado se e-mail não verificado)",
 )
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
     user = db.query(User).filter(User.username == form_data.username).first()
 
     if not user or not verify_password(form_data.password, user.hashed_password):
@@ -108,7 +107,12 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         )
 
     access_token = create_access_token({"sub": user.username})
-    return {"access_token": access_token, "token_type": "bearer"}
+    refresh_token = create_refresh_token({"sub": user.username})
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }
 
 
 @router.get(
@@ -150,7 +154,6 @@ def resend_verification(
     db: Session = Depends(get_db),
 ):
     email = payload.email
-    # Resposta neutra para não revelar se o email existe
     neutral = {"message": "Se o e-mail existir, enviaremos um link de verificação."}
 
     user = db.query(User).filter(User.email == email).first()
@@ -165,20 +168,45 @@ def resend_verification(
     user.verification_token_expires_at = token_expiration(24)
     db.commit()
 
-    # Envia email em background para não travar a requisição
     def send_email_task():
         import logging
         try:
-            logging.info(f"Iniciando envio de email de verificação para {email}")
             send_verification_email(user.email, token)
-            logging.info(f"Email de verificação enviado com sucesso para {email}")
         except Exception as e:
             logging.error(f"ERRO ao reenviar email para {email}: {str(e)}", exc_info=True)
 
     background_tasks.add_task(send_email_task)
-
     return neutral
-    
+
+
 @router.get("/me", response_model=UserOut, summary="Retorna o usuário logado")
 def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.post("/refresh", summary="Renova o access token usando o refresh token")
+def refresh_token(
+    refresh_token: str = Query(..., description="Refresh token recebido no login"),
+    db: Session = Depends(get_db),
+):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Refresh token inválido ou expirado",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("scope") != "refresh_token":
+            raise credentials_exception
+        username: str = payload.get("sub")
+        if not username:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise credentials_exception
+
+    new_access_token = create_access_token({"sub": user.username})
+    return {"access_token": new_access_token, "token_type": "bearer"}
