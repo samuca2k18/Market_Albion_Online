@@ -1,0 +1,32 @@
+name: 🚨 Cron — Verificar Alertas de Preço
+
+on:
+  # Roda a cada 15 minutos (menor intervalo gratuito confiável do GitHub Actions)
+  schedule:
+    - cron: "*/15 * * * *"
+
+  # Permite disparar manualmente pelo GitHub → Actions → Run workflow
+  workflow_dispatch:
+
+jobs:
+  check-alerts:
+    name: Verificar alertas e enviar e-mails
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: 🔔 Chamar /alerts/run-check
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "${{ secrets.API_BASE_URL }}/alerts/run-check" \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+
+          echo "HTTP Status: $STATUS"
+
+          if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 300 ]; then
+            echo "❌ Falha! Status inesperado: $STATUS"
+            exit 1
+          fi
+
+          echo "✅ Alertas verificados com sucesso."
