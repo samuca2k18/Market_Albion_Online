@@ -152,15 +152,11 @@ def mark_read(
     return {"ok": True}
 
 
-@router.post("/run-check")
-def run_checker(
-    x_cron_secret: Optional[str] = Header(None),
-    db: Session = Depends(get_db),
-):
-    # protege cron
-    if CRON_SECRET and x_cron_secret != CRON_SECRET:
-        raise HTTPException(status_code=401, detail="Invalid secret")
-
+def run_checker_internal(db: Session) -> dict:
+    """
+    Lógica de verificação de alertas. Pode ser chamada pelo scheduler
+    interno OU pelo endpoint HTTP /run-check.
+    """
     alerts: list[models.PriceAlert] = (
         db.query(models.PriceAlert).filter_by(is_active=True).all()
     )
@@ -174,7 +170,11 @@ def run_checker(
         cities = [alert.city] if alert.city else None
         qualities = [alert.quality] if alert.quality else None
 
-        data = get_prices([alert.item_id], cities, qualities)
+        try:
+            data = get_prices([alert.item_id], cities, qualities)
+        except Exception:
+            continue
+
         valid = [
             d.get("sell_price_min")
             for d in (data or [])
@@ -217,16 +217,19 @@ def run_checker(
         # IA: calcula baseline pelo histórico
         if expected is None and alert.use_ai_expected:
             city_list = [alert.city] if alert.city else ["Caerleon"]
-            expected = _compute_expected_price_from_history(
-                item_id=alert.item_id,
-                cities=city_list,
-                days=alert.ai_days,
-                resolution=alert.ai_resolution,
-                stat=alert.ai_stat,
-                min_points=alert.ai_min_points,
-            )
+            try:
+                expected = _compute_expected_price_from_history(
+                    item_id=alert.item_id,
+                    cities=city_list,
+                    days=alert.ai_days,
+                    resolution=alert.ai_resolution,
+                    stat=alert.ai_stat,
+                    min_points=alert.ai_min_points,
+                )
+            except Exception:
+                expected = None
 
-            # fallback: se não tiver histórico suficiente, usa o “preço atual” como baseline
+            # fallback: se não tiver histórico suficiente, usa o "preço atual" como baseline
             if expected is None:
                 expected = current_price
 
@@ -244,6 +247,18 @@ def run_checker(
 
     db.commit()
     return {"checked": checked, "triggered": triggered}
+
+
+@router.post("/run-check")
+def run_checker(
+    x_cron_secret: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Endpoint HTTP para disparar a verificação manualmente (cron externo ou admin)."""
+    if CRON_SECRET and x_cron_secret != CRON_SECRET:
+        raise HTTPException(status_code=401, detail="Invalid secret")
+
+    return run_checker_internal(db)
 
 
 def _fire_alert(
