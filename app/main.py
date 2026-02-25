@@ -1,100 +1,39 @@
 # app/main.py
 import logging
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import inspect, text
-from apscheduler.schedulers.background import BackgroundScheduler
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
+from app.core.limiter import limiter
 from app.database import Base, engine, SessionLocal
 from app.routers import alerts, auth, items, albion, health
 
-logger = logging.getLogger(__name__)
+# ── Logging estruturado em JSON ────────────────────────────────────────────
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.INFO,
+    format='{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}',
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+logger = logging.getLogger("albion_market")
 
-# ---------------------------------------------------------------------------
-# Cria / actualiza as tabelas no banco de dados
-# ---------------------------------------------------------------------------
+# Cria tabelas que ainda não existem (DEV); em produção use `alembic upgrade head`
 Base.metadata.create_all(bind=engine)
 
-# Migração leve: garante colunas legadas (dev / banco antigo)
-with engine.connect() as conn:
-    inspector = inspect(conn)
 
-    # user_items: display_name
-    cols_user_items = {c["name"] for c in inspector.get_columns("user_items")}
-    if "display_name" not in cols_user_items:
-        conn.execute(text("ALTER TABLE user_items ADD COLUMN display_name VARCHAR"))
-        conn.commit()
-
-    # users: campos de verificação de e-mail
-    cols_users = {c["name"] for c in inspector.get_columns("users")}
-    if "is_verified" not in cols_users:
-        conn.execute(
-            text("ALTER TABLE users ADD COLUMN is_verified BOOLEAN NOT NULL DEFAULT FALSE")
-        )
-        conn.commit()
-
-    if "verification_token" not in cols_users:
-        conn.execute(text("ALTER TABLE users ADD COLUMN verification_token VARCHAR"))
-        conn.commit()
-
-    if "verification_token_expires_at" not in cols_users:
-        conn.execute(
-            text(
-                "ALTER TABLE users ADD COLUMN verification_token_expires_at TIMESTAMPTZ"
-            )
-        )
-        conn.commit()
-
-
-# ---------------------------------------------------------------------------
-# Scheduler — checa alertas de preço a cada 5 minutos
-# ---------------------------------------------------------------------------
-_scheduler = BackgroundScheduler(timezone="UTC")
-
-
-def _scheduled_price_check() -> None:
-    """Job executado pelo scheduler. Abre uma sessão própria e verifica alertas."""
-    db = SessionLocal()
-    try:
-        from app.routers.alerts import run_checker_internal
-        result = run_checker_internal(db)
-        logger.info(
-            "[Scheduler] Verificação concluída — checados=%d disparados=%d",
-            result["checked"],
-            result["triggered"],
-        )
-    except Exception as exc:  # nunca deixa o scheduler crashar
-        logger.exception("[Scheduler] Erro durante verificação de alertas: %s", exc)
-    finally:
-        db.close()
-
-
-# ---------------------------------------------------------------------------
-# Lifespan (startup / shutdown)
-# ---------------------------------------------------------------------------
+# ── Lifespan (startup / shutdown) ──────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ---- startup ----
-    _scheduler.add_job(
-        _scheduled_price_check,
-        trigger="interval",
-        minutes=5,
-        id="price_alert_check",
-        replace_existing=True,
-    )
-    _scheduler.start()
-    logger.info("[Scheduler] Iniciado — verificação a cada 5 minutos.")
+    logger.info("API iniciada.")
     yield
-    # ---- shutdown ----
-    _scheduler.shutdown(wait=False)
-    logger.info("[Scheduler] Encerrado.")
+    logger.info("API encerrada.")
 
 
-# ---------------------------------------------------------------------------
-# App
-# ---------------------------------------------------------------------------
+# ── App ────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Albion Market API",
     version="1.0.0",
@@ -102,9 +41,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Registra rate limiter e handler de 429
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://www.marketalbionbr.com.br",
+        "https://marketalbionbr.com.br",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

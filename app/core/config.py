@@ -7,7 +7,9 @@ class Settings(BaseSettings):
     # === JWT / Segurança ===
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60      # 1 hora (seguro)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30        # refresh válido por 30 dias
+    CRON_SECRET: str | None = None             # segredo para proteger /alerts/run-check
 
     # === Banco de Dados ===
     DATABASE_URL: str  # ← ESSA LINHA É OBRIGATÓRIA!
