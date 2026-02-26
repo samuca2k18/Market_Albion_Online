@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/alerts/run-check",
-      "schedule": "0 6 * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }

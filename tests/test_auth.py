@@ -11,6 +11,8 @@ USER_DATA = {
 def test_signup_success(client):
     """Testa criação de usuário com sucesso."""
     response = client.post("/signup", json=USER_DATA)
+    if response.status_code != 201:
+        print(f"Error: {response.json()}")
     assert response.status_code == 201
     data = response.json()
     assert data["username"] == "testuser"

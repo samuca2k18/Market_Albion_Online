@@ -13,6 +13,27 @@ router = APIRouter(prefix="/albion", tags=["Albion Online"])
 
 LANG_SLUG_TO_KEY = {"pt-br": "pt_br", "en-us": "en_us"}
 
+REGIONS = [
+    {"id": "europe", "label": "Europe", "flag": "🌍", "host": "europe.albion-online-data.com"},
+    {"id": "west",   "label": "Americas", "flag": "🌎", "host": "west.albion-online-data.com"},
+    {"id": "east",   "label": "Asia",     "flag": "🌏", "host": "east.albion-online-data.com"},
+]
+
+
+def _validate_region(region: str) -> str:
+    valid = [r["id"] for r in REGIONS]
+    if region not in valid:
+        raise HTTPException(400, f"Região inválida. Use: {', '.join(valid)}")
+    return region
+
+
+@router.get("/regions")
+def list_regions():
+    """
+    Retorna as regiões de servidor disponíveis (sem autenticação).
+    """
+    return REGIONS
+
 
 def _validate_lang_slug(lang: str) -> str:
     key = LANG_SLUG_TO_KEY.get(lang.lower())
@@ -93,6 +114,7 @@ def _buscar_precos_por_idioma(
     lang_key: str,
     current_user,
     permitir_fallback_en: bool = False,
+    region: str = "europe",
 ):
     raw_items = [i.strip() for i in items.split(",") if i.strip()]
     item_list = _resolver_lista_itens(
@@ -105,7 +127,7 @@ def _buscar_precos_por_idioma(
     city_list = [c.strip() for c in cities.split(",") if c.strip()]
     quality_list = [int(q) for q in qualities.split(",") if q.strip()]
 
-    data = get_prices(item_list, city_list, quality_list)
+    data = get_prices(item_list, city_list, quality_list, region=region)
     if not data:
         raise HTTPException(404, "Nenhum preço encontrado")
 
@@ -123,9 +145,10 @@ def _buscar_precos_por_idioma(
                 "quality": d["quality"],
                 "enchantment": d.get("enchantment", 0),
                 "updated": d["sell_price_min_date"],
+                "region": region,
             }
 
-    return {"items": cheapest_by_item, "all_data": data}
+    return {"items": cheapest_by_item, "all_data": data, "region": region}
 
 
 @router.get("/prices/pt-br")
@@ -136,12 +159,14 @@ def get_prices_pt(
     ),
     cities: str = Query(",".join(settings.DEFAULT_CITIES)),
     qualities: str = Query("1,2,3,4,5"),
+    region: str = Query("europe", description="Região do servidor: europe, west (Américas) ou east (Ásia)"),
     current_user=Depends(get_current_user),
 ):
     """
     Preços para múltiplos itens resolvendo nomes PT-BR.
     """
-    return _buscar_precos_por_idioma(items, cities, qualities, "pt_br", current_user)
+    _validate_region(region)
+    return _buscar_precos_por_idioma(items, cities, qualities, "pt_br", current_user, region=region)
 
 
 @router.get("/prices/en-us")
@@ -152,12 +177,14 @@ def get_prices_en(
     ),
     cities: str = Query(",".join(settings.DEFAULT_CITIES)),
     qualities: str = Query("1,2,3,4,5"),
+    region: str = Query("europe", description="Região do servidor: europe, west (Américas) ou east (Ásia)"),
     current_user=Depends(get_current_user),
 ):
     """
     Preços para múltiplos itens resolvendo nomes EN-US.
     """
-    return _buscar_precos_por_idioma(items, cities, qualities, "en_us", current_user)
+    _validate_region(region)
+    return _buscar_precos_por_idioma(items, cities, qualities, "en_us", current_user, region=region)
 
 
 @router.get("/prices")
@@ -168,6 +195,7 @@ def get_prices_endpoint(
     ),
     cities: str = Query(",".join(settings.DEFAULT_CITIES)),
     qualities: str = Query("1,2,3,4,5"),
+    region: str = Query("europe", description="Região do servidor: europe, west (Américas) ou east (Ásia)"),
     current_user=Depends(get_current_user),
 ):
     """
@@ -178,8 +206,9 @@ def get_prices_endpoint(
       - Nomes humanos: 'bolsa do adepto, capa letal'
     Faz a resolução de nomes PT/EN -> UniqueName automaticamente.
     """
+    _validate_region(region)
     return _buscar_precos_por_idioma(
-        items, cities, qualities, "pt_br", current_user, permitir_fallback_en=True
+        items, cities, qualities, "pt_br", current_user, permitir_fallback_en=True, region=region
     )
 
 
@@ -187,16 +216,17 @@ def get_prices_endpoint(
 def price_by_name(
     name: str = Query(..., description="Nome em PT-BR ou EN"),
     cities: str = Query(",".join(settings.DEFAULT_CITIES)),
+    region: str = Query("europe", description="Região do servidor"),
     current_user=Depends(get_current_user),
 ):
     """
     Preço para um único item a partir de nome humano (PT/EN).
     """
-    return price_by_name_pt(name=name, cities=cities, current_user=current_user)
+    return price_by_name_pt(name=name, cities=cities, region=region, current_user=current_user)
 
 
 def _preco_por_nome(
-    name: str, cities: str, lang_key: str, permitir_fallback_en: bool = False
+    name: str, cities: str, lang_key: str, permitir_fallback_en: bool = False, region: str = "europe"
 ):
     itens = buscar_item_por_nome(name, lang_key)
     if not itens and permitir_fallback_en and lang_key == "pt_br":
@@ -206,7 +236,8 @@ def _preco_por_nome(
 
     unique = itens[0]["UniqueName"]
     city_list = [c.strip() for c in cities.split(",") if c.strip()]
-    data = get_prices([unique], city_list)
+    _validate_region(region)
+    data = get_prices([unique], city_list, region=region)
 
     if not data:
         raise HTTPException(404, "Sem preços disponíveis no momento")
@@ -222,6 +253,7 @@ def _preco_por_nome(
         "price": cheapest["sell_price_min"],
         "quality": cheapest["quality"],
         "updated_at": cheapest["sell_price_min_date"],
+        "region": region,
         "all_prices": data[:10],
     }
 
@@ -230,18 +262,20 @@ def _preco_por_nome(
 def price_by_name_pt(
     name: str = Query(..., description="Nome em PT-BR"),
     cities: str = Query(",".join(settings.DEFAULT_CITIES)),
+    region: str = Query("europe", description="Região do servidor"),
     current_user=Depends(get_current_user),
 ):
-    return _preco_por_nome(name, cities, "pt_br", permitir_fallback_en=True)
+    return _preco_por_nome(name, cities, "pt_br", permitir_fallback_en=True, region=region)
 
 
 @router.get("/price-by-name/en-us")
 def price_by_name_en(
     name: str = Query(..., description="Nome em EN-US"),
     cities: str = Query(",".join(settings.DEFAULT_CITIES)),
+    region: str = Query("europe", description="Região do servidor"),
     current_user=Depends(get_current_user),
 ):
-    return _preco_por_nome(name, cities, "en_us")
+    return _preco_por_nome(name, cities, "en_us", region=region)
 
 
 @router.get("/history/{item_id}")
@@ -250,11 +284,13 @@ def price_history(
     days: int = Query(7, ge=1, le=30, description="Quantos dias de histórico"),
     cities: str = Query("Caerleon", description="Cidades separadas por vírgula"),
     resolution: str = Query("6h", description="1h, 6h ou 24h"),
+    region: str = Query("europe", description="Região do servidor: europe, west (Américas) ou east (Ásia)"),
     current_user=Depends(get_current_user),
 ):
     """
     Histórico de preços para uso no gráfico do frontend.
     """
+    _validate_region(region)
     city_list = [c.strip() for c in cities.split(",") if c.strip()]
 
     history = get_price_history(
@@ -262,6 +298,7 @@ def price_history(
         locations=city_list,
         days=days,
         time_resolution=resolution,
+        region=region,
     )
 
     # Se a API não devolver nada, não é erro de servidor, só "sem dados"
@@ -271,6 +308,7 @@ def price_history(
             "cities": city_list,
             "resolution": resolution,
             "days": days,
+            "region": region,
             "data": [],
         }
 
@@ -279,6 +317,7 @@ def price_history(
         "cities": city_list,
         "resolution": resolution,
         "days": days,
+        "region": region,
         "data": history,
     }
 
@@ -291,6 +330,7 @@ def my_items_prices(
         "pt_br",
         description="Idioma para resolver nomes não únicos (pt_br ou en_us)",
     ),
+    region: str = Query("europe", description="Região do servidor: europe, west (Américas) ou east (Ásia)"),
 ):
     """
     Retorna os preços dos itens salvos pelo usuário.
@@ -320,7 +360,8 @@ def my_items_prices(
     if not resolved_names:
         return []
 
-    raw_data = get_prices(resolved_names)
+    _validate_region(region)
+    raw_data = get_prices(resolved_names, region=region)
 
     result = []
     for entry in raw_data:
