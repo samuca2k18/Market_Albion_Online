@@ -1,8 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/alerts/run-check",
-      "schedule": "6 * * * *"
-    }
-  ]
-}
+
