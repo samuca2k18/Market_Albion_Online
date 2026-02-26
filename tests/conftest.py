@@ -5,6 +5,10 @@ from sqlalchemy.orm import sessionmaker
 
 from app.main import app
 from app.database import Base, get_db  # ajuste o import se necessário
+from app.core.limiter import limiter
+
+# Desativa o rate limiter durante os testes para evitar 429
+limiter.enabled = False
 
 # Banco em memória só para testes
 SQLALCHEMY_TEST_DATABASE_URL = "sqlite:///./test.db"
