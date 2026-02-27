@@ -1,4 +1,5 @@
 import pytest
+from app import models
 
 # Dados de teste reutilizáveis
 USER_DATA = {
@@ -8,8 +9,17 @@ USER_DATA = {
 }
 
 
-def test_signup_success(client):
+def test_signup_success(client, db):
     """Testa criação de usuário com sucesso."""
+    # Cleanup para garantir que o usuário não exista
+    user = db.query(models.User).filter_by(username=USER_DATA["username"]).first()
+    if user:
+        # Deleta dependências primeiro
+        db.query(models.PriceAlert).filter_by(user_id=user.id).delete()
+        db.query(models.UserNotification).filter_by(user_id=user.id).delete()
+        db.delete(user)
+        db.commit()
+
     response = client.post("/signup", json=USER_DATA)
     if response.status_code != 201:
         print(f"Error: {response.json()}")
@@ -21,8 +31,16 @@ def test_signup_success(client):
     assert "hashed_password" not in data
 
 
-def test_signup_duplicate_username(client):
+def test_signup_duplicate_username(client, db):
     """Testa que não é possível criar dois usuários com mesmo username."""
+    # Cleanup inicial
+    user = db.query(models.User).filter_by(username=USER_DATA["username"]).first()
+    if user:
+        db.query(models.PriceAlert).filter_by(user_id=user.id).delete()
+        db.query(models.UserNotification).filter_by(user_id=user.id).delete()
+        db.delete(user)
+        db.commit()
+
     client.post("/signup", json=USER_DATA)  # Primeiro cadastro
 
     response = client.post("/signup", json=USER_DATA)  # Segundo (duplicado)
@@ -30,13 +48,23 @@ def test_signup_duplicate_username(client):
     assert "já cadastrado" in response.json()["detail"]
 
 
-def test_login_unverified_email(client):
+def test_login_unverified_email(client, db):
     """Testa que login é bloqueado se e-mail não foi verificado."""
-    client.post("/signup", json={
+    unverified_user = {
         "username": "unverified_user",
         "email": "unverified@example.com",
         "password": "senha123"
-    })
+    }
+    
+    # Cleanup
+    user = db.query(models.User).filter_by(username=unverified_user["username"]).first()
+    if user:
+        db.query(models.PriceAlert).filter_by(user_id=user.id).delete()
+        db.query(models.UserNotification).filter_by(user_id=user.id).delete()
+        db.delete(user)
+        db.commit()
+
+    client.post("/signup", json=unverified_user)
 
     response = client.post("/login", data={
         "username": "unverified_user",

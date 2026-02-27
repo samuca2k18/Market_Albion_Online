@@ -18,3 +18,4 @@ alembic==1.13.3
 pytest
 pytest-asyncio
 httpx
+slowapi

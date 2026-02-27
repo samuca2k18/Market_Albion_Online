@@ -1,5 +1,5 @@
 # app/core/security.py
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from passlib.context import CryptContext
@@ -43,10 +43,10 @@ def create_access_token(
     Cria um token JWT de acesso.
     """
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({
         "exp": expire,
-        "iat": datetime.utcnow(),  # issued at
+        "iat": datetime.now(timezone.utc),  # issued at
         "scope": "access_token"
     })
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
