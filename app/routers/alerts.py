@@ -270,7 +270,9 @@ def run_checker(
     db: Session = Depends(get_db),
 ):
     """Endpoint HTTP para disparar a verificação manualmente (cron externo ou admin)."""
-    if CRON_SECRET and x_cron_secret != CRON_SECRET:
+    current_cron_secret = os.getenv("CRON_SECRET")
+    # ✅ CORRIGIDO: Muda de 403 para 401 e mensagem para "Invalid secret"
+    if current_cron_secret and x_cron_secret != current_cron_secret:
         raise HTTPException(status_code=401, detail="Invalid secret")
 
     return run_checker_internal(db)
