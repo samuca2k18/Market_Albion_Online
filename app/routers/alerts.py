@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 import os
 import statistics
@@ -17,7 +17,20 @@ CRON_SECRET = os.getenv("CRON_SECRET")
 
 
 def _now_utc() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
+
+
+def _ensure_aware(dt: Optional[datetime]) -> Optional[datetime]:
+    """
+    Garante que um datetime tem timezone UTC.
+    Se for None, retorna None.
+    Se não tiver tzinfo, assume que é UTC.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def _extract_history_prices(history: list) -> list[float]:
@@ -186,8 +199,10 @@ def run_checker_internal(db: Session) -> dict:
         current_price = float(min(valid))
 
         # cooldown anti-spam
+        # FIX: Garantir que last_triggered_at tem timezone antes de subtrair
         if alert.last_triggered_at:
-            if (_now_utc() - alert.last_triggered_at) < timedelta(
+            last_triggered = _ensure_aware(alert.last_triggered_at)
+            if (_now_utc() - last_triggered) < timedelta(
                 minutes=alert.cooldown_minutes
             ):
                 continue
@@ -255,7 +270,9 @@ def run_checker(
     db: Session = Depends(get_db),
 ):
     """Endpoint HTTP para disparar a verificação manualmente (cron externo ou admin)."""
-    if CRON_SECRET and x_cron_secret != CRON_SECRET:
+    current_cron_secret = os.getenv("CRON_SECRET")
+    # ✅ CORRIGIDO: Muda de 403 para 401 e mensagem para "Invalid secret"
+    if current_cron_secret and x_cron_secret != current_cron_secret:
         raise HTTPException(status_code=401, detail="Invalid secret")
 
     return run_checker_internal(db)

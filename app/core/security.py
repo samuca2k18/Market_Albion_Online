@@ -1,5 +1,5 @@
 # app/core/security.py
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from passlib.context import CryptContext
@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 from sqlalchemy.orm import Session
-from app.database import SessionLocal
+from app.database import get_db          # ← importa de app.database (não mais local)
 from app.models import User
 
 # ==================== HASH DE SENHA ====================
@@ -43,10 +43,10 @@ def create_access_token(
     Cria um token JWT de acesso.
     """
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({
         "exp": expire,
-        "iat": datetime.utcnow(),  # issued at
+        "iat": datetime.now(timezone.utc),
         "scope": "access_token"
     })
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -60,17 +60,9 @@ def create_refresh_token(data: dict) -> str:
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db),       # ← agora usa app.database.get_db
 ) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

@@ -1,6 +1,7 @@
 # app/main.py
 import logging
 import sys
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -12,17 +13,21 @@ from app.core.limiter import limiter
 from app.database import Base, engine, SessionLocal
 from app.routers import alerts, auth, items, albion, health
 
-# ── Logging estruturado em JSON ────────────────────────────────────────────
-logging.basicConfig(
-    stream=sys.stdout,
-    level=logging.INFO,
-    format='{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}',
-    datefmt="%Y-%m-%dT%H:%M:%S",
-)
+# ── Logging ────────────────────────────────────────────────────────────────
 logger = logging.getLogger("albion_market")
+if not logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter(
+        '{"time":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}',
+        datefmt="%Y-%m-%dT%H:%M:%S"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 
 # Cria tabelas que ainda não existem (DEV); em produção use `alembic upgrade head`
-Base.metadata.create_all(bind=engine)
+if os.getenv("TESTING") != "true":
+    Base.metadata.create_all(bind=engine)
 
 
 # ── Lifespan (startup / shutdown) ──────────────────────────────────────────
