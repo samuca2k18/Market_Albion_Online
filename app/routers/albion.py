@@ -410,3 +410,84 @@ def gold_prices(
         "all": data,
         "region": region
     }
+@router.get("/arbitrage")
+def arbitrage_calculator(
+    items: List[str] = Query(None),
+    region: str = Query("europe"),
+    tax: float = Query(0.08, description="Imposto de mercado (0.04 ou 0.08)"),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Calcula oportunidades de arbitragem entre cidades para uma lista de itens.
+    Se nenhuma lista for fornecida, usa os itens rastreados do usuário.
+    """
+    _validate_region(region)
+    
+    # Se não passar itens, usa os itens rastreados do usuário
+    if not items:
+        user_items = db.query(UserItem).filter(UserItem.user_id == user.id).all()
+        items = list(set([ui.item_name for ui in user_items]))
+    
+    if not items:
+        return []
+
+    # Busca preços em todas as cidades padrão
+    # Limitando a 50 itens por vez para não estourar a URL/API
+    all_opportunities = []
+    chunk_size = 50
+    item_chunks = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+    
+    setup_fee = 0.01  # 1% de taxa de setup de ordem de venda
+    
+    for chunk in item_chunks:
+        prices = get_prices(items=chunk, region=region)
+        
+        # Organiza por item
+        item_prices = {}
+        for p in prices:
+            item_id = p["item_id"]
+            if item_id not in item_prices:
+                item_prices[item_id] = []
+            item_prices[item_id].append(p)
+            
+        for item_id, city_prices in item_prices.items():
+            # Compara cada par de cidades
+            for buy_data in city_prices:
+                buy_price = buy_data.get("sell_price_min", 0)
+                if not buy_price or buy_price <= 0:
+                    continue
+                
+                for sell_data in city_prices:
+                    if buy_data["city"] == sell_data["city"]:
+                        continue
+                    
+                    sell_price = sell_data.get("sell_price_min", 0)
+                    if not sell_price or sell_price <= 0:
+                        continue
+                    
+                    # Cálculo: Receita Líquida - Custo Total
+                    # Receita Líquida = Preço de Venda * (1 - imposto)
+                    # Custo Total = Preço de Compra * (1 + setup_fee)
+                    cost = buy_price * (1 + setup_fee)
+                    revenue = sell_price * (1 - tax)
+                    profit = revenue - cost
+                    
+                    if profit > 0:
+                        roi = (profit / cost) * 100
+                        all_opportunities.append({
+                            "item_id": item_id,
+                            "buy_from": buy_data["city"],
+                            "buy_price": buy_price,
+                            "sell_at": sell_data["city"],
+                            "sell_price": sell_price,
+                            "profit": int(profit),
+                            "roi": round(roi, 2),
+                            "buy_date": buy_data["sell_price_min_date"],
+                            "sell_date": sell_data["sell_price_min_date"]
+                        })
+    
+    # Ordena por maior lucro absoluto
+    all_opportunities.sort(key=lambda x: x["profit"], reverse=True)
+    
+    return all_opportunities[:100]
