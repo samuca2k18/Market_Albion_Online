@@ -443,15 +443,18 @@ def arbitrage_calculator(
     for chunk in item_chunks:
         prices = get_prices(items=chunk, region=region)
         
-        # Organiza por item
+        # Organiza por item e qualidade
         item_prices = {}
         for p in prices:
             item_id = p["item_id"]
-            if item_id not in item_prices:
-                item_prices[item_id] = []
-            item_prices[item_id].append(p)
+            quality = p.get("quality", 1)
+            key = (item_id, quality)
             
-        for item_id, city_prices in item_prices.items():
+            if key not in item_prices:
+                item_prices[key] = []
+            item_prices[key].append(p)
+            
+        for (item_id, quality), city_prices in item_prices.items():
             # Compara cada par de cidades
             for buy_data in city_prices:
                 buy_price = buy_data.get("sell_price_min", 0)
@@ -467,8 +470,6 @@ def arbitrage_calculator(
                         continue
                     
                     # Cálculo: Receita Líquida - Custo Total
-                    # Receita Líquida = Preço de Venda * (1 - imposto)
-                    # Custo Total = Preço de Compra * (1 + setup_fee)
                     cost = buy_price * (1 + setup_fee)
                     revenue = sell_price * (1 - tax)
                     profit = revenue - cost
@@ -477,6 +478,7 @@ def arbitrage_calculator(
                         roi = (profit / cost) * 100
                         all_opportunities.append({
                             "item_id": item_id,
+                            "quality": quality,
                             "buy_from": buy_data["city"],
                             "buy_price": buy_price,
                             "sell_at": sell_data["city"],
