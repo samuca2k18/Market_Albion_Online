@@ -384,7 +384,7 @@ def my_items_prices(
     return result
 @router.get("/gold")
 def gold_prices(
-    count: int = Query(2, ge=1, le=50),
+    count: int = Query(2, ge=1, le=1000),
     region: str = Query("europe", description="europe, west ou east"),
 ):
     """
