@@ -165,3 +165,33 @@ def get_price_history(
     except Exception as e:
         print(f"[Albion] Erro history: {e}")
         return []
+def get_gold_prices(
+    count: int = 1,
+    region: str = settings.ALBION_REGION,
+) -> List[Dict]:
+    """
+    Wrapper para o endpoint /stats/gold.json da Albion Data API.
+    Retorna os preços de ouro mais recentes.
+    """
+    base_prices_url = settings.ALBION_BASE_URLS.get(
+        region, settings.ALBION_BASE_URLS["europe"]
+    )
+    # Ex.: https://europe.albion-online-data.com/api/v2/stats/gold.json
+    gold_url = base_prices_url.replace("/prices", "/gold.json")
+
+    params = {"count": count}
+    cache_key = f"gold:{count}:{region}"
+
+    if cache_key in prices_cache:
+        return prices_cache[cache_key]
+
+    try:
+        resp = session.get(gold_url, params=params, timeout=settings.ALBION_API_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        prices_cache[cache_key] = data
+        return data
+    except Exception as e:
+        print(f"[Albion] Erro gold: {e}")
+        return []

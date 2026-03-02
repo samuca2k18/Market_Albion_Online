@@ -3,7 +3,7 @@ from typing import List
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db
-from app.utils.albion_client import get_prices, get_price_history
+from app.utils.albion_client import get_prices, get_price_history, get_gold_prices
 from app.utils.albion_index import buscar_item_por_nome
 from app.core.config import settings
 from app.models import UserItem
@@ -382,3 +382,31 @@ def my_items_prices(
     # Ordena do mais barato pro mais caro
     result.sort(key=lambda x: x["price"])
     return result
+@router.get("/gold")
+def gold_prices(
+    count: int = Query(2, ge=1, le=50),
+    region: str = Query("europe", description="europe, west ou east"),
+):
+    """
+    Retorna preços de ouro e variação opcional.
+    """
+    _validate_region(region)
+    data = get_gold_prices(count=count, region=region)
+    
+    if not data:
+        raise HTTPException(404, "Preços de ouro não disponíveis")
+        
+    current = data[0] if len(data) > 0 else None
+    previous = data[1] if len(data) > 1 else None
+    
+    variation = 0
+    if current and previous:
+        variation = current["price"] - previous["price"]
+        
+    return {
+        "current": current,
+        "previous": previous,
+        "variation": variation,
+        "all": data,
+        "region": region
+    }
