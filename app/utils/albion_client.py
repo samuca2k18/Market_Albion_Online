@@ -14,8 +14,8 @@ session.headers.update(
     }
 )
 
-# Cache global para preços
-prices_cache = cachetools.TTLCache(maxsize=1000, ttl=300)  # 5 minutos
+# Cache global para preços — TTL de 2 min para dados mais frescos
+prices_cache = cachetools.TTLCache(maxsize=1000, ttl=120)  # 2 minutos
 
 # Cache separado para histórico
 history_cache = cachetools.TTLCache(maxsize=500, ttl=600)  # 10 minutos
