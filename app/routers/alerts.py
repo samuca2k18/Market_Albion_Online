@@ -17,20 +17,25 @@ CRON_SECRET = os.getenv("CRON_SECRET")
 
 
 def _now_utc() -> datetime:
+    # Sempre timezone-aware
     return datetime.now(timezone.utc)
 
 
 def _ensure_aware(dt: Optional[datetime]) -> Optional[datetime]:
     """
-    Garante que um datetime tem timezone UTC.
-    Se for None, retorna None.
-    Se não tiver tzinfo, assume que é UTC.
+    Garante datetime timezone-aware em UTC.
+    - None -> None
+    - naive -> assume UTC e marca tzinfo
+    - aware -> converte para UTC
+    - tipo inesperado -> None (evita quebrar o cron)
     """
     if dt is None:
         return None
+    if not isinstance(dt, datetime):
+        return None
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
-    return dt
+    return dt.astimezone(timezone.utc)
 
 
 def _extract_history_prices(history: list) -> list[float]:
@@ -38,12 +43,11 @@ def _extract_history_prices(history: list) -> list[float]:
     Tenta extrair preços do histórico da Albion API de forma robusta,
     porque o formato pode variar (sell_price_min / avg / etc).
     """
-    candidates = []
+    candidates: list[float] = []
     for row in history or []:
         if not isinstance(row, dict):
             continue
 
-        # chaves mais comuns
         for k in (
             "sell_price_min",
             "sell_price_min_avg",
@@ -56,6 +60,7 @@ def _extract_history_prices(history: list) -> list[float]:
             if isinstance(v, (int, float)) and v > 0:
                 candidates.append(float(v))
                 break
+
     return candidates
 
 
@@ -191,19 +196,21 @@ def run_checker_internal(db: Session) -> dict:
         valid = [
             d.get("sell_price_min")
             for d in (data or [])
-            if isinstance(d.get("sell_price_min"), (int, float)) and d["sell_price_min"] > 0
+            if isinstance(d.get("sell_price_min"), (int, float))
+            and d["sell_price_min"] > 0
         ]
         if not valid:
             continue
 
         current_price = float(min(valid))
 
-        # cooldown anti-spam
-        # FIX: Garantir que last_triggered_at tem timezone antes de subtrair
-        if alert.last_triggered_at:
-            last_triggered = _ensure_aware(alert.last_triggered_at)
+        # ---------------------
+        # cooldown anti-spam (à prova de naive/aware)
+        # ---------------------
+        last_triggered = _ensure_aware(alert.last_triggered_at)
+        if last_triggered is not None:
             if (_now_utc() - last_triggered) < timedelta(
-                minutes=alert.cooldown_minutes
+                minutes=int(alert.cooldown_minutes or 0)
             ):
                 continue
 
@@ -223,7 +230,7 @@ def run_checker_internal(db: Session) -> dict:
         if not alert.percent_below:
             continue
 
-        expected = None
+        expected: Optional[float] = None
 
         # manual
         if alert.expected_price:
@@ -232,19 +239,20 @@ def run_checker_internal(db: Session) -> dict:
         # IA: calcula baseline pelo histórico
         if expected is None and alert.use_ai_expected:
             city_list = [alert.city] if alert.city else ["Caerleon"]
+
             try:
                 expected = _compute_expected_price_from_history(
                     item_id=alert.item_id,
                     cities=city_list,
-                    days=alert.ai_days,
-                    resolution=alert.ai_resolution,
-                    stat=alert.ai_stat,
-                    min_points=alert.ai_min_points,
+                    days=int(alert.ai_days or 0),
+                    resolution=str(alert.ai_resolution or "hour"),
+                    stat=str(alert.ai_stat or "median"),
+                    min_points=int(alert.ai_min_points or 10),
                 )
             except Exception:
                 expected = None
 
-            # fallback: se não tiver histórico suficiente, usa o "preço atual" como baseline
+            # fallback: se não tiver histórico suficiente, usa o preço atual como baseline
             if expected is None:
                 expected = current_price
 
@@ -271,7 +279,6 @@ def run_checker(
 ):
     """Endpoint HTTP para disparar a verificação manualmente (cron externo ou admin)."""
     current_cron_secret = os.getenv("CRON_SECRET")
-    # ✅ CORRIGIDO: Muda de 403 para 401 e mensagem para "Invalid secret"
     if current_cron_secret and x_cron_secret != current_cron_secret:
         raise HTTPException(status_code=401, detail="Invalid secret")
 
@@ -286,10 +293,10 @@ def _fire_alert(
     expected_price: Optional[float],
 ):
     # notificação no site
-    if expected_price:
+    if expected_price is not None:
         body = (
             f"{item_label} chegou a {current_price:.0f} "
-            f"(esperado ~{expected_price:.0f}, -{alert.percent_below:.0f}%)."
+            f"(esperado ~{expected_price:.0f}, -{float(alert.percent_below or 0):.0f}%)."
         )
     else:
         body = f"{item_label} chegou a {current_price:.0f}."
@@ -313,4 +320,5 @@ def _fire_alert(
             percent_below=float(alert.percent_below or 0),
         )
 
+    # salvar timestamps sempre aware (UTC)
     alert.last_triggered_at = _now_utc()

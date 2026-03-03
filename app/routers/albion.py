@@ -3,7 +3,7 @@ from typing import List
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db
-from app.utils.albion_client import get_prices, get_price_history
+from app.utils.albion_client import get_prices, get_price_history, get_gold_prices
 from app.utils.albion_index import buscar_item_por_nome
 from app.core.config import settings
 from app.models import UserItem
@@ -382,3 +382,114 @@ def my_items_prices(
     # Ordena do mais barato pro mais caro
     result.sort(key=lambda x: x["price"])
     return result
+@router.get("/gold")
+def gold_prices(
+    count: int = Query(2, ge=1, le=1000),
+    region: str = Query("europe", description="europe, west ou east"),
+):
+    """
+    Retorna preços de ouro e variação opcional.
+    """
+    _validate_region(region)
+    data = get_gold_prices(count=count, region=region)
+    
+    if not data:
+        raise HTTPException(404, "Preços de ouro não disponíveis")
+        
+    current = data[0] if len(data) > 0 else None
+    previous = data[1] if len(data) > 1 else None
+    
+    variation = 0
+    if current and previous:
+        variation = current["price"] - previous["price"]
+        
+    return {
+        "current": current,
+        "previous": previous,
+        "variation": variation,
+        "all": data,
+        "region": region
+    }
+@router.get("/arbitrage")
+def arbitrage_calculator(
+    items: List[str] = Query(None),
+    region: str = Query("europe"),
+    tax: float = Query(0.08, description="Imposto de mercado (0.04 ou 0.08)"),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Calcula oportunidades de arbitragem entre cidades para uma lista de itens.
+    Se nenhuma lista for fornecida, usa os itens rastreados do usuário.
+    """
+    _validate_region(region)
+    
+    # Se não passar itens, usa os itens rastreados do usuário
+    if not items:
+        user_items = db.query(UserItem).filter(UserItem.user_id == user.id).all()
+        items = list(set([ui.item_name for ui in user_items]))
+    
+    if not items:
+        return []
+
+    # Busca preços em todas as cidades padrão
+    # Limitando a 50 itens por vez para não estourar a URL/API
+    all_opportunities = []
+    chunk_size = 50
+    item_chunks = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+    
+    setup_fee = 0.01  # 1% de taxa de setup de ordem de venda
+    
+    for chunk in item_chunks:
+        prices = get_prices(items=chunk, region=region)
+        
+        # Organiza por item e qualidade
+        item_prices = {}
+        for p in prices:
+            item_id = p["item_id"]
+            quality = p.get("quality", 1)
+            key = (item_id, quality)
+            
+            if key not in item_prices:
+                item_prices[key] = []
+            item_prices[key].append(p)
+            
+        for (item_id, quality), city_prices in item_prices.items():
+            # Compara cada par de cidades
+            for buy_data in city_prices:
+                buy_price = buy_data.get("sell_price_min", 0)
+                if not buy_price or buy_price <= 0:
+                    continue
+                
+                for sell_data in city_prices:
+                    if buy_data["city"] == sell_data["city"]:
+                        continue
+                    
+                    sell_price = sell_data.get("sell_price_min", 0)
+                    if not sell_price or sell_price <= 0:
+                        continue
+                    
+                    # Cálculo: Receita Líquida - Custo Total
+                    cost = buy_price * (1 + setup_fee)
+                    revenue = sell_price * (1 - tax)
+                    profit = revenue - cost
+                    
+                    if profit > 0:
+                        roi = (profit / cost) * 100
+                        all_opportunities.append({
+                            "item_id": item_id,
+                            "quality": quality,
+                            "buy_from": buy_data["city"],
+                            "buy_price": buy_price,
+                            "sell_at": sell_data["city"],
+                            "sell_price": sell_price,
+                            "profit": int(profit),
+                            "roi": round(roi, 2),
+                            "buy_date": buy_data["sell_price_min_date"],
+                            "sell_date": sell_data["sell_price_min_date"]
+                        })
+    
+    # Ordena por maior lucro absoluto
+    all_opportunities.sort(key=lambda x: x["profit"], reverse=True)
+    
+    return all_opportunities[:100]
