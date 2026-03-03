@@ -376,6 +376,7 @@ def my_items_prices(
                 "price": entry["sell_price_min"],
                 "quality": entry["quality"],
                 "enchantment": entry.get("enchantment", 0),
+                "updated_at": entry.get("sell_price_min_date", ""),
             }
         )
 
@@ -493,3 +494,114 @@ def arbitrage_calculator(
     all_opportunities.sort(key=lambda x: x["profit"], reverse=True)
     
     return all_opportunities[:100]
+
+
+@router.get("/bandit-event")
+def bandit_event_status():
+    """
+    Retorna o status do próximo Bandit Event baseado no ciclo fixo de 2h.
+    Os eventos Bandit acontecem em intervalos regulares com duração de ~20min.
+    
+    Futuramente pode ser aprimorado com dados do NATS em tempo real.
+    """
+    from datetime import datetime, timezone, timedelta
+    
+    now = datetime.now(timezone.utc)
+    
+    # Ciclo de 2h — anchor em um horário UTC conhecido
+    cycle_minutes = 120
+    event_duration_minutes = 20
+    
+    # Anchor: meia-noite UTC de hoje como referência (eventos a cada 2h: 00, 02, 04, ...)
+    today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Calcular minutos desde a meia-noite
+    elapsed_minutes = (now - today_midnight).total_seconds() / 60
+    
+    # Posição no ciclo atual
+    cycle_position = elapsed_minutes % cycle_minutes
+    
+    if cycle_position < event_duration_minutes:
+        # Evento ativo
+        phase = 2
+        minutes_remaining = event_duration_minutes - cycle_position
+        event_time = now + timedelta(minutes=minutes_remaining)
+        status = "active"
+    elif cycle_position >= (cycle_minutes - 30):
+        # Próximo em menos de 30 min
+        minutes_until = cycle_minutes - cycle_position
+        phase = 1
+        event_time = now + timedelta(minutes=minutes_until)
+        status = "soon"
+    else:
+        # Próximo evento distante
+        minutes_until = cycle_minutes - cycle_position
+        phase = 1
+        event_time = now + timedelta(minutes=minutes_until)
+        status = "waiting"
+    
+    return {
+        "status": status,
+        "phase": phase,
+        "next_event_utc": event_time.isoformat(),
+        "minutes_remaining": round(minutes_until if status != "active" else minutes_remaining),
+        "cycle_minutes": cycle_minutes,
+        "event_duration_minutes": event_duration_minutes,
+    }
+
+
+@router.get("/killboard")
+def killboard_feed(
+    limit: int = Query(20, ge=1, le=51),
+):
+    """
+    Proxy para a API pública de kills do Albion Online.
+    Não requer autenticação do nosso backend.
+    """
+    import requests as req
+    
+    try:
+        resp = req.get(
+            f"https://gameinfo.albiononline.com/api/gameinfo/events?limit={limit}",
+            timeout=10,
+            headers={"Accept-Encoding": "gzip"},
+        )
+        resp.raise_for_status()
+        events = resp.json()
+        
+        # Simplificar para o frontend (dados brutos são muito pesados)
+        simplified = []
+        for ev in events:
+            killer = ev.get("Killer", {})
+            victim = ev.get("Victim", {})
+            
+            killer_weapon = killer.get("Equipment", {}).get("MainHand")
+            victim_weapon = victim.get("Equipment", {}).get("MainHand")
+            
+            simplified.append({
+                "event_id": ev.get("EventId"),
+                "timestamp": ev.get("TimeStamp"),
+                "kill_area": ev.get("KillArea", "UNKNOWN"),
+                "total_fame": ev.get("TotalVictimKillFame", 0),
+                "participants": ev.get("numberOfParticipants", 1),
+                "killer": {
+                    "name": killer.get("Name", "Unknown"),
+                    "guild": killer.get("GuildName", ""),
+                    "alliance": killer.get("AllianceName", ""),
+                    "ip": round(killer.get("AverageItemPower", 0)),
+                    "weapon": killer_weapon.get("Type") if killer_weapon else None,
+                },
+                "victim": {
+                    "name": victim.get("Name", "Unknown"),
+                    "guild": victim.get("GuildName", ""),
+                    "alliance": victim.get("AllianceName", ""),
+                    "ip": round(victim.get("AverageItemPower", 0)),
+                    "weapon": victim_weapon.get("Type") if victim_weapon else None,
+                    "death_fame": victim.get("DeathFame", 0),
+                },
+            })
+        
+        return simplified
+    except Exception as e:
+        print(f"[Albion] Erro killboard: {e}")
+        return []
