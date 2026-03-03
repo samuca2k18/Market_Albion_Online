@@ -44,7 +44,7 @@ def get_prices(
     }
     params = {k: v for k, v in params.items() if v}
 
-    cache_key = f"prices:{','.join(items)}:{params.get('locations')}:{params.get('qualities')}"
+    cache_key = f"prices:{region}:{','.join(items)}:{params.get('locations')}:{params.get('qualities')}"
     if cache_key in prices_cache:
         return prices_cache[cache_key]
 
