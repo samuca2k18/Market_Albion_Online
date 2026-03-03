@@ -15,7 +15,6 @@ python-multipart==0.0.20
 httpx==0.27.2
 apscheduler==3.10.4
 alembic==1.13.3
+slowapi==0.1.9
 pytest
 pytest-asyncio
-slowapi
-httpx

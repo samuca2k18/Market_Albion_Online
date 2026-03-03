@@ -14,8 +14,8 @@ session.headers.update(
     }
 )
 
-# Cache global para preços
-prices_cache = cachetools.TTLCache(maxsize=1000, ttl=300)  # 5 minutos
+# Cache global para preços — TTL de 2 min para dados mais frescos
+prices_cache = cachetools.TTLCache(maxsize=1000, ttl=120)  # 2 minutos
 
 # Cache separado para histórico
 history_cache = cachetools.TTLCache(maxsize=500, ttl=600)  # 10 minutos
@@ -44,7 +44,7 @@ def get_prices(
     }
     params = {k: v for k, v in params.items() if v}
 
-    cache_key = f"prices:{','.join(items)}:{params.get('locations')}:{params.get('qualities')}"
+    cache_key = f"prices:{region}:{','.join(items)}:{params.get('locations')}:{params.get('qualities')}"
     if cache_key in prices_cache:
         return prices_cache[cache_key]
 
