@@ -33,6 +33,10 @@ class UserItem(Base):
 
     item_name = Column(String, nullable=False)
     display_name = Column(String, nullable=True)
+    
+    # Manual order for dashboard drag-and-drop
+    sort_order = Column(Integer, nullable=False, default=0, server_default="0")
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="items")

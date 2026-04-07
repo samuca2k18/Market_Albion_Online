@@ -11,7 +11,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.core.limiter import limiter
 from app.database import Base, engine, SessionLocal
-from app.routers import alerts, auth, items, albion, health
+from app.routers import alerts, auth, items, albion, health, openalbion, stream
 
 # ── Logging ────────────────────────────────────────────────────────────────
 logger = logging.getLogger("albion_market")
@@ -68,6 +68,8 @@ app.include_router(items.router)
 app.include_router(albion.router)
 app.include_router(health.router)
 app.include_router(alerts.router)
+app.include_router(openalbion.router)
+app.include_router(stream.router)
 
 
 @app.get("/")

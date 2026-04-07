@@ -120,6 +120,10 @@ class ItemOut(BaseModel):
         None,
         description="Data e hora de criação do item"
     )
+    sort_order: int = Field(
+        0,
+        description="Ordem de visualização definida pelo usuário (drag & drop)"
+    )
 
     model_config = {
         "from_attributes": True,
@@ -128,10 +132,16 @@ class ItemOut(BaseModel):
                 "id": 1,
                 "item_name": "T4_BAG",
                 "display_name": "Bolsa do Adepto",
-                "created_at": "2024-01-15T10:30:00"
+                "created_at": "2024-01-15T10:30:00",
+                "sort_order": 0
             }
         }
     }
+
+
+class ItemReorder(BaseModel):
+    id: int
+    sort_order: int
 
 
 class ResendVerificationRequest(BaseModel):

@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import UserItem
-from app.schemas import ItemCreate, ItemOut
+from app.schemas import ItemCreate, ItemOut, ItemReorder
 from app.dependencies import get_db, get_current_user
 from app.utils.albion_index import buscar_item_por_nome
 
@@ -58,10 +59,18 @@ def add_item(
     """
     unique_name = resolve_to_unique_name(item.item_name, lang)
 
+    max_sort_order = (
+        db.query(func.max(UserItem.sort_order))
+        .filter(UserItem.user_id == user.id)
+        .scalar()
+    )
+    next_sort_order = (max_sort_order or 0) + 1
+
     db_item = UserItem(
         user_id=user.id,
         item_name=unique_name,
         display_name=item.display_name,
+        sort_order=next_sort_order,
     )
     db.add(db_item)
     db.commit()
@@ -71,7 +80,36 @@ def add_item(
 
 @router.get("/", response_model=list[ItemOut])
 def my_items(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    return db.query(UserItem).filter(UserItem.user_id == user.id).all()
+    return db.query(UserItem).filter(UserItem.user_id == user.id).order_by(UserItem.sort_order.asc(), UserItem.id.asc()).all()
+
+
+@router.put("/reorder")
+def reorder_items(
+    items_reorder: list[ItemReorder],
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Atualiza a ordem dos itens (drag & drop).
+    Recebe um array com id e a nova ordem.
+    """
+    item_ids = [payload.id for payload in items_reorder]
+    if not item_ids:
+        return {"message": "Nothing to reorder"}
+
+    db_items = (
+        db.query(UserItem)
+        .filter(UserItem.user_id == user.id, UserItem.id.in_(item_ids))
+        .all()
+    )
+    by_id = {item.id: item for item in db_items}
+    for payload in items_reorder:
+        db_item = by_id.get(payload.id)
+        if db_item:
+            db_item.sort_order = payload.sort_order
+
+    db.commit()
+    return {"message": "D&D Reorder applied successfully"}
 
 
 @router.delete("/{item_id}")

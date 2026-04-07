@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
-from typing import List
+from typing import Any, Dict, List, cast
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db
@@ -435,9 +435,9 @@ def arbitrage_calculator(
 
     # Busca preços em todas as cidades padrão
     # Limitando a 50 itens por vez para não estourar a URL/API
-    all_opportunities = []
+    all_opportunities: List[Dict[str, Any]] = []
     chunk_size = 50
-    item_chunks = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+    item_chunks = [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]  # pyre-ignore[16]
     
     setup_fee = 0.01  # 1% de taxa de setup de ordem de venda
     
@@ -492,8 +492,8 @@ def arbitrage_calculator(
     
     # Ordena por maior lucro absoluto
     all_opportunities.sort(key=lambda x: x["profit"], reverse=True)
-    
-    return all_opportunities[:100]
+
+    return all_opportunities[:100]  # pyre-ignore[16]
 
 
 @router.get("/bandit-event")
