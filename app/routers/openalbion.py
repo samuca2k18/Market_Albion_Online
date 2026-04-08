@@ -1,50 +1,68 @@
-﻿# app/routers/openalbion.py
+# app/routers/openalbion.py
 """OpenAlbion proxy routes with in-memory caching."""
 
 import logging
 import time
-from typing import Any, Dict
+from logging.handlers import RotatingFileHandler
+from typing import Any
 
 import requests
-from fastapi import APIRouter, HTTPException, Query
+from cachetools import TTLCache
+from fastapi import APIRouter, HTTPException, Query, Request
+from app.models.schemas import CraftingResponseSchema, CraftingRowSchema
 
+# Configuração de Logs estruturados
 logger = logging.getLogger("albion_market")
+file_handler = RotatingFileHandler("logs/openalbion.log", maxBytes=5*1024*1024, backupCount=3)
+file_formatter = logging.Formatter('{"time":"%(asctime)s","level":"%(levelname)s","url":"%(message)s"}')
+file_handler.setFormatter(file_formatter)
+logger.addHandler(file_handler)
 
 router = APIRouter(prefix="/openalbion", tags=["OpenAlbion Proxy"])
 
 OPENALBION_BASE = "https://api.openalbion.com/api/v3"
 
-_cache: Dict[str, Any] = {}
-_cache_ts: Dict[str, float] = {}
+# TTLCache: expurga automaticamente entradas expiradas, evitando memory leak.
+_cache: TTLCache = TTLCache(maxsize=500, ttl=3600)
 
 DEFAULT_TTL = 3600
 
 
 def _cached_get(url: str, params: dict | None = None, ttl: int = DEFAULT_TTL) -> Any:
-    """HTTP GET with in-memory cache by URL + params."""
+    """HTTP GET with TTLCache e Error Handling robusto."""
+    start_time = time.time()
     cache_key = f"{url}?{sorted((params or {}).items())}"
-    now = time.time()
 
-    if cache_key in _cache and (now - _cache_ts.get(cache_key, 0)) < ttl:
+    if cache_key in _cache:
         return _cache[cache_key]
 
     try:
         response = requests.get(
             url,
             params=params,
-            timeout=15,
-            headers={"Accept-Encoding": "gzip"},
+            timeout=8,  # Reduzido para fail-fast
+            headers={"Accept-Encoding": "gzip", "User-Agent": "AlbionMarket/1.0"},
         )
         response.raise_for_status()
         data = response.json()
         _cache[cache_key] = data
-        _cache_ts[cache_key] = now
+        
+        duration = round(time.time() - start_time, 3)
+        logger.info(f"{url} | status: {response.status_code} | time: {duration}s")
+        
         return data
+    except requests.exceptions.Timeout:
+        logger.error(f"[OpenAlbion] Timeout em {url}")
+        raise HTTPException(504, "A API externa demorou muito para responder. Tente novamente.")
+    except requests.exceptions.ConnectionError:
+        logger.error(f"[OpenAlbion] Falha de conexao/DNS em {url}")
+        raise HTTPException(503, "Nao foi possivel conectar a base de dados do OpenAlbion.")
     except requests.RequestException as exc:
-        logger.error("[OpenAlbion] request failed for %s: %s", url, exc)
+        status_code = exc.response.status_code if exc.response else 502
+        logger.error(f"[OpenAlbion] Falha: {status_code} | URL: {url}")
         if cache_key in _cache:
             return _cache[cache_key]
-        raise HTTPException(502, f"Erro ao conectar com OpenAlbion: {exc}")
+        raise HTTPException(status_code, f"Erro na comunicacao com OpenAlbion.")
 
 
 def _normalize_crafting_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -106,7 +124,7 @@ def _normalize_crafting_payload(payload: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
-    return {"data": normalized_rows, "raw": raw_rows}
+    return CraftingResponseSchema(data=normalized_rows)
 
 
 def _query_filters(
@@ -225,13 +243,13 @@ def get_spells_by_path(item_type: str, item_id: int):
     return _cached_get(f"{OPENALBION_BASE}/spells/{item_type}/{item_id}")
 
 
-@router.get("/consumable-craftings")
+@router.get("/consumable-craftings", response_model=CraftingResponseSchema)
 def get_consumable_craftings(consumable_id: int = Query(...)):
     raw = _cached_get(f"{OPENALBION_BASE}/consumable-craftings/consumable/{consumable_id}")
     return _normalize_crafting_payload(raw)
 
 
-@router.get("/consumable-craftings/consumable/{consumable_id}")
+@router.get("/consumable-craftings/consumable/{consumable_id}", response_model=CraftingResponseSchema)
 def get_consumable_craftings_by_path(consumable_id: int):
     raw = _cached_get(f"{OPENALBION_BASE}/consumable-craftings/consumable/{consumable_id}")
     return _normalize_crafting_payload(raw)
