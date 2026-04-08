@@ -4,6 +4,7 @@
 import logging
 import time
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -13,10 +14,17 @@ from app.models.schemas import CraftingResponseSchema, CraftingRowSchema
 
 # Configuração de Logs estruturados
 logger = logging.getLogger("albion_market")
-file_handler = RotatingFileHandler("logs/openalbion.log", maxBytes=5*1024*1024, backupCount=3)
-file_formatter = logging.Formatter('{"time":"%(asctime)s","level":"%(levelname)s","url":"%(message)s"}')
-file_handler.setFormatter(file_formatter)
-logger.addHandler(file_handler)
+_LOG_FILE = Path("logs") / "openalbion.log"
+_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+if not any(
+    isinstance(handler, RotatingFileHandler) and Path(handler.baseFilename) == _LOG_FILE.resolve()
+    for handler in logger.handlers
+):
+    file_handler = RotatingFileHandler(_LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3)
+    file_formatter = logging.Formatter('{"time":"%(asctime)s","level":"%(levelname)s","url":"%(message)s"}')
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
 
 router = APIRouter(prefix="/openalbion", tags=["OpenAlbion Proxy"])
 
