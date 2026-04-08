@@ -2,6 +2,7 @@
 """OpenAlbion proxy routes with in-memory caching."""
 
 import logging
+import os
 import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -14,17 +15,39 @@ from app.models.schemas import CraftingResponseSchema, CraftingRowSchema
 
 # Configuração de Logs estruturados
 logger = logging.getLogger("albion_market")
-_LOG_FILE = Path("logs") / "openalbion.log"
-_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+_DEFAULT_LOG_FILE = Path("logs") / "openalbion.log"
+_TMP_LOG_FILE = Path("/tmp") / "openalbion.log"
 
-if not any(
-    isinstance(handler, RotatingFileHandler) and Path(handler.baseFilename) == _LOG_FILE.resolve()
-    for handler in logger.handlers
-):
-    file_handler = RotatingFileHandler(_LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3)
-    file_formatter = logging.Formatter('{"time":"%(asctime)s","level":"%(levelname)s","url":"%(message)s"}')
-    file_handler.setFormatter(file_formatter)
-    logger.addHandler(file_handler)
+
+def _handler_exists(log_file: Path) -> bool:
+    target = log_file.resolve()
+    return any(
+        isinstance(handler, RotatingFileHandler) and Path(handler.baseFilename) == target
+        for handler in logger.handlers
+    )
+
+
+def _try_add_file_handler(log_file: Path) -> bool:
+    try:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        if _handler_exists(log_file):
+            return True
+        file_handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=3)
+        file_formatter = logging.Formatter('{"time":"%(asctime)s","level":"%(levelname)s","url":"%(message)s"}')
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+        return True
+    except OSError:
+        return False
+
+
+_env_log_file = os.getenv("OPENALBION_LOG_FILE")
+_candidate_paths = [Path(_env_log_file)] if _env_log_file else []
+_candidate_paths.extend([_DEFAULT_LOG_FILE, _TMP_LOG_FILE])
+
+for _candidate in _candidate_paths:
+    if _try_add_file_handler(_candidate):
+        break
 
 router = APIRouter(prefix="/openalbion", tags=["OpenAlbion Proxy"])
 
