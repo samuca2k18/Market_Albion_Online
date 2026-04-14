@@ -54,6 +54,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 allowed_origins = {
     "https://www.marketalbionbr.com.br",
     "https://marketalbionbr.com.br",
+    "https://front-market-albion.vercel.app",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 }
@@ -71,6 +72,7 @@ if extra_cors_origins:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=sorted(allowed_origins),
+    allow_origin_regex=r"https://([a-z0-9-]+\.)*marketalbionbr\.com\.br",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

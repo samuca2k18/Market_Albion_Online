@@ -125,6 +125,13 @@ class ItemOut(BaseModel):
         description="Ordem de visualização definida pelo usuário (drag & drop)"
     )
 
+
+    @field_validator("sort_order", mode="before")
+    @classmethod
+    def normalize_sort_order(cls, v):
+        # Compatibilidade com registros legados onde sort_order ficou NULL.
+        return 0 if v is None else v
+
     model_config = {
         "from_attributes": True,
         "json_schema_extra": {
