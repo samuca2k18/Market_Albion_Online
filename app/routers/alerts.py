@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 import os
 import statistics
+import requests
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -14,6 +15,9 @@ from app.services.mailer import send_price_alert_email
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 CRON_SECRET = os.getenv("CRON_SECRET")
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 
 def _now_utc() -> datetime:
@@ -320,5 +324,52 @@ def _fire_alert(
             percent_below=float(alert.percent_below or 0),
         )
 
+    _send_optional_webhooks(
+        item=item_label,
+        current_price=current_price,
+        city=alert.city,
+        expected_price=expected_price,
+        percent_below=float(alert.percent_below or 0),
+    )
+
     # salvar timestamps sempre aware (UTC)
     alert.last_triggered_at = _now_utc()
+
+
+def _send_optional_webhooks(
+    item: str,
+    current_price: float,
+    city: Optional[str],
+    expected_price: Optional[float],
+    percent_below: float,
+) -> None:
+    """
+    Envia alerta opcional para Discord e Telegram se variáveis de ambiente estiverem configuradas.
+    """
+    city_txt = city or "Qualquer"
+    expected_txt = (
+        f" | baseline ~{expected_price:.0f} | -{percent_below:.0f}%"
+        if expected_price is not None
+        else ""
+    )
+    message = f"Albion Alert: {item} @ {current_price:.0f} silver | city={city_txt}{expected_txt}"
+
+    if DISCORD_WEBHOOK_URL:
+        try:
+            requests.post(
+                DISCORD_WEBHOOK_URL,
+                json={"content": message},
+                timeout=10,
+            )
+        except Exception:
+            pass
+
+    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": message},
+                timeout=10,
+            )
+        except Exception:
+            pass

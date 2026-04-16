@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # === Cidades padrão ===
     DEFAULT_CITIES: List[str] = [
         "Bridgewatch", "Martlock", "Thetford", "Lymhurst",
-        "FortSterling", "Caerleon"
+        "Fort Sterling", "Caerleon", "Brecilien"
     ]
 
     class Config:
