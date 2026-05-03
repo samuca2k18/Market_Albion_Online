@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, inspect
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db
@@ -66,6 +66,13 @@ def add_item(
 ):
     unique_name = resolve_to_unique_name(item.item_name, lang)
     supports_sort_order = _supports_sort_order(db)
+    existing = (
+        db.query(UserItem.id)
+        .filter(UserItem.user_id == user.id, UserItem.item_name == unique_name)
+        .first()
+    )
+    if existing:
+        raise HTTPException(400, "Item ja esta na lista de monitoramento")
 
     item_kwargs = {
         "user_id": user.id,
@@ -88,6 +95,9 @@ def add_item(
         db.commit()
         db.refresh(db_item)
         return db_item
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(400, "Item ja esta na lista de monitoramento")
     except SQLAlchemyError:
         db.rollback()
 
@@ -100,9 +110,13 @@ def add_item(
                 display_name=item.display_name,
             )
             db.add(db_item)
-            db.commit()
-            db.refresh(db_item)
-            return db_item
+            try:
+                db.commit()
+                db.refresh(db_item)
+                return db_item
+            except IntegrityError:
+                db.rollback()
+                raise HTTPException(400, "Item ja esta na lista de monitoramento")
 
         raise
 

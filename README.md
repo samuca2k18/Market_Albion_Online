@@ -78,6 +78,11 @@ Albion Online é um MMORPG Sandbox mundo aberto onde você que faz a sua histór
 - ✅ Fases: ativo, em breve, esperando
 - ✅ Countdown em minutos até o próximo evento
 
+### 🛡️ Guild Hub & Integração OpenAlbion (Novo)
+- ✅ Roteiro `/openalbion` robusto para consulta e cache de guildas 
+- ✅ Análise de status e atividades da comunidade via API de terceiros (GameInfo)
+- ✅ Integrações para extração da economia e status do meta
+
 ### 🗡️ Killboard
 - ✅ Proxy para API oficial de kills (`gameinfo.albiononline.com`)
 - ✅ Dados simplificados: killer/victim, guild, aliança, IP, arma, fame
@@ -90,10 +95,11 @@ Albion Online é um MMORPG Sandbox mundo aberto onde você que faz a sua histór
 - ✅ Ativação/desativação e remoção de alertas
 - ✅ Trigger manual via cron job com `CRON_SECRET`
 
-### 🔍 Busca de Itens
+### 🔍 Busca de Itens e Streaming
 - ✅ **Índice local com todos os itens do Albion** em PT-BR e EN-US
 - ✅ Busca exata e busca aproximada (score-based fuzzy search)
-- ✅ Endpoint `/albion/search/pt-br` e `/albion/search/en-us`
+- ✅ Endpoints em `/albion/search/pt-br` e `/albion/search/en-us`
+- ✅ Streaming de dados avançado para monitoramento (via roteador `stream.py`)
 - ✅ Rota legada `/albion/search` com fallback automático de idioma
 
 ### 🛠️ Recursos Profissionais
@@ -579,8 +585,8 @@ A documentação inclui:
 | GET | `/albion/search/pt-br?q=...` | Buscar itens por nome em PT-BR | ✅ |
 | GET | `/albion/search/en-us?q=...` | Buscar itens por nome em EN-US | ✅ |
 | GET | `/albion/search?q=...` | Buscar itens (PT-BR com fallback EN) | ✅ |
-| GET | `/albion/price/pt-br` | Consultar preços (idioma PT-BR) | ✅ |
-| GET | `/albion/price/en-us` | Consultar preços (idioma EN-US) | ✅ |
+| GET | `/albion/prices/pt-br` | Consultar preços (idioma PT-BR) | ✅ |
+| GET | `/albion/prices/en-us` | Consultar preços (idioma EN-US) | ✅ |
 | GET | `/albion/my-items-prices` | Preços dos meus itens (com `updated_at`) | ✅ |
 | GET | `/albion/gold` | Preço do ouro e variação | ❌ |
 | GET | `/albion/history/{item_id}` | Histórico de preços (1h/6h/24h) | ✅ |
@@ -595,7 +601,7 @@ A documentação inclui:
 | POST | `/alerts` | Criar alerta de preço | ✅ |
 | GET | `/alerts` | Listar meus alertas | ✅ |
 | DELETE | `/alerts/{alert_id}` | Remover alerta | ✅ |
-| POST | `/alerts/trigger` | Disparar verificação de alertas (cron) | 🔑 |
+| POST | `/alerts/run-check` | Disparar verificação de alertas (cron) | 🔑 |
 
 ### Sistema
 

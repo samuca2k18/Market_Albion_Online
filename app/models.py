@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, Float, func
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, Float, func, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -27,6 +27,9 @@ class User(Base):
 
 class UserItem(Base):
     __tablename__ = "user_items"
+    __table_args__ = (
+        UniqueConstraint("user_id", "item_name", name="uq_user_items_user_item_name"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)

@@ -473,7 +473,7 @@ def price_by_name(
     """
     Preço para um único item a partir de nome humano (PT/EN).
     """
-    return price_by_name_pt(name=name, cities=cities, region=region, current_user=current_user)
+    return _preco_por_nome(name, cities, "pt_br", permitir_fallback_en=True, region=region)
 
 
 def _preco_por_nome(

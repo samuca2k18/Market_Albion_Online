@@ -104,3 +104,41 @@ def test_login_wrong_password(client, db):
         "password": "senhaerrada"
     })
     assert response.status_code == 401
+
+
+def test_refresh_token_success(client, db):
+    """Garante refresh via cookie HttpOnly e rotacao de refresh token."""
+    test_user = get_unique_user_data()
+
+    # Cleanup
+    user = db.query(models.User).filter_by(username=test_user["username"]).first()
+    if user:
+        db.query(models.PriceAlert).filter_by(user_id=user.id).delete()
+        db.query(models.UserNotification).filter_by(user_id=user.id).delete()
+        db.delete(user)
+        db.commit()
+
+    client.post("/signup", json=test_user)
+
+    user = db.query(models.User).filter_by(username=test_user["username"]).first()
+    assert user is not None
+    user.is_verified = True
+    db.commit()
+
+    login_response = client.post("/login", data={
+        "username": test_user["username"],
+        "password": test_user["password"],
+    })
+    assert login_response.status_code == 200
+
+    login_data = login_response.json()
+    assert login_data.get("access_token")
+    assert "refresh_token" not in login_data
+    assert "set-cookie" in login_response.headers
+
+    refresh_response = client.post("/refresh")
+    assert refresh_response.status_code == 200
+    assert "set-cookie" in refresh_response.headers
+    data = refresh_response.json()
+    assert data.get("access_token")
+    assert data.get("token_type") == "bearer"
