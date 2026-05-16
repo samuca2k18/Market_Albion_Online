@@ -129,3 +129,11 @@ def test_run_checker_invalid_secret(client):
     response = client.post("/alerts/run-check", headers=headers)
     assert response.status_code == 401
     assert "Invalid secret" in response.json()["detail"]
+
+
+def test_run_checker_without_configured_secret(client, monkeypatch):
+    """Endpoint deve falhar se CRON_SECRET não estiver configurado."""
+    monkeypatch.delenv("CRON_SECRET", raising=False)
+    response = client.post("/alerts/run-check", headers={"x-cron-secret": "any"})
+    assert response.status_code == 503
+    assert "CRON_SECRET not configured" in response.json()["detail"]

@@ -142,3 +142,27 @@ def test_refresh_token_success(client, db):
     data = refresh_response.json()
     assert data.get("access_token")
     assert data.get("token_type") == "bearer"
+
+
+def test_refresh_token_cannot_access_protected_routes(client, db):
+    """Garante que refresh token não pode ser usado como access token em /me."""
+    test_user = get_unique_user_data()
+
+    user = db.query(models.User).filter_by(username=test_user["username"]).first()
+    if user:
+        db.query(models.PriceAlert).filter_by(user_id=user.id).delete()
+        db.query(models.UserNotification).filter_by(user_id=user.id).delete()
+        db.delete(user)
+        db.commit()
+
+    client.post("/signup", json=test_user)
+    user = db.query(models.User).filter_by(username=test_user["username"]).first()
+    assert user is not None
+    user.is_verified = True
+    db.commit()
+
+    from app.core.security import create_refresh_token
+
+    refresh_token = create_refresh_token({"sub": test_user["username"]})
+    response = client.get("/me", headers={"Authorization": f"Bearer {refresh_token}"})
+    assert response.status_code == 401

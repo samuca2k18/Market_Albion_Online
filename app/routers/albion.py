@@ -25,7 +25,17 @@ REGIONS = [
     {"id": "east",   "label": "Asia",     "flag": "🌏", "host": "east.albion-online-data.com"},
 ]
 
-GAMEINFO_BASE_URL = "https://gameinfo.albiononline.com/api/gameinfo"
+GAMEINFO_SESSION = req.Session()
+GAMEINFO_SESSION.headers.update({
+    "Accept-Encoding": "gzip",
+    "User-Agent": "AlbionMarketAPI/1.0",
+})
+
+GAMEINFO_BASE_URLS = {
+    "west": "https://gameinfo.albiononline.com/api/gameinfo",
+    "europe": "https://gameinfo-ams.albiononline.com/api/gameinfo",
+    "east": "https://gameinfo-sgp.albiononline.com/api/gameinfo",
+}
 
 CITY_ALIASES = {
     "bridgewatch": "Bridgewatch",
@@ -89,16 +99,13 @@ def _parse_cities(cities_raw: str | None, fallback: List[str] | None = None) -> 
     return unique
 
 
-def _gameinfo_get(path: str, params: dict | None = None) -> Any:
+def _gameinfo_get(path: str, params: dict | None = None, region: str = "west") -> Any:
+    base_url = GAMEINFO_BASE_URLS.get(region, GAMEINFO_BASE_URLS["west"])
     try:
-        response = req.get(
-            f"{GAMEINFO_BASE_URL}{path}",
+        response = GAMEINFO_SESSION.get(
+            f"{base_url}{path}",
             params=params,
             timeout=12,
-            headers={
-                "Accept-Encoding": "gzip",
-                "User-Agent": "AlbionMarketAPI/1.0",
-            },
         )
         response.raise_for_status()
         return response.json()
@@ -800,7 +807,7 @@ def arbitrage_route_calculator(
 
     requested_items = _normalize_item_list(items or [])
     if not requested_items:
-        user_items = db.query(UserItem).filter(UserItem.user_id == user.id).all()
+        user_items = db.query(UserItem).filter(UserItem.user_id == user.id).limit(300).all()
         requested_items = _normalize_item_list([ui.item_name for ui in user_items])
 
     if not requested_items:
@@ -975,12 +982,13 @@ def bandit_event_status():
 def killboard_feed(
     request: Request,
     limit: int = Query(20, ge=1, le=51),
+    region: str = Query("west", description="europe, west ou east"),
 ):
     """
     Proxy para a API pública de kills do Albion Online.
     Não requer autenticação do nosso backend.
     """
-    events = _gameinfo_get("/events", {"limit": limit})
+    events = _gameinfo_get("/events", {"limit": limit}, region=region)
     return [_simplify_kill_event(ev) for ev in events]
 
 
@@ -990,8 +998,9 @@ def player_search(
     request: Request,
     q: str = Query(..., min_length=2, description="Nome parcial do jogador"),
     limit: int = Query(15, ge=1, le=50),
+    region: str = Query("west", description="europe, west ou east"),
 ):
-    data = _gameinfo_get("/search", {"q": q})
+    data = _gameinfo_get("/search", {"q": q}, region=region)
     players = [row for row in data if row.get("Type") == "Player"][:limit]
     return [
         {
@@ -1010,8 +1019,9 @@ def guild_search(
     request: Request,
     q: str = Query(..., min_length=2, description="Nome parcial da guilda"),
     limit: int = Query(15, ge=1, le=50),
+    region: str = Query("west", description="europe, west ou east"),
 ):
-    data = _gameinfo_get("/search", {"q": q})
+    data = _gameinfo_get("/search", {"q": q}, region=region)
     guilds = [row for row in data if row.get("Type") == "Guild"][:limit]
     return [
         {
@@ -1026,8 +1036,12 @@ def guild_search(
 
 @router.get("/player/{player_id}")
 @limiter.limit("30/minute")
-def player_profile(request: Request, player_id: str):
-    return _gameinfo_get(f"/players/{player_id}")
+def player_profile(
+    request: Request,
+    player_id: str,
+    region: str = Query("west", description="europe, west ou east"),
+):
+    return _gameinfo_get(f"/players/{player_id}", region=region)
 
 
 @router.get("/player/{player_id}/kills")
@@ -1037,10 +1051,12 @@ def player_kills(
     player_id: str,
     limit: int = Query(20, ge=1, le=51),
     offset: int = Query(0, ge=0),
+    region: str = Query("west", description="europe, west ou east"),
 ):
     events = _gameinfo_get(
         f"/players/{player_id}/kills",
         {"limit": limit, "offset": offset},
+        region=region,
     )
     return [_simplify_kill_event(ev) for ev in events]
 
@@ -1052,30 +1068,44 @@ def player_deaths(
     player_id: str,
     limit: int = Query(20, ge=1, le=51),
     offset: int = Query(0, ge=0),
+    region: str = Query("west", description="europe, west ou east"),
 ):
     events = _gameinfo_get(
         f"/players/{player_id}/deaths",
         {"limit": limit, "offset": offset},
+        region=region,
     )
     return [_simplify_kill_event(ev) for ev in events]
 
 
 @router.get("/guild/{guild_id}")
 @limiter.limit("30/minute")
-def guild_profile(request: Request, guild_id: str):
-    return _gameinfo_get(f"/guilds/{guild_id}")
+def guild_profile(
+    request: Request,
+    guild_id: str,
+    region: str = Query("west", description="europe, west ou east"),
+):
+    return _gameinfo_get(f"/guilds/{guild_id}", region=region)
 
 
 @router.get("/guild/{guild_id}/members")
 @limiter.limit("30/minute")
-def guild_members(request: Request, guild_id: str):
-    return _gameinfo_get(f"/guilds/{guild_id}/members")
+def guild_members(
+    request: Request,
+    guild_id: str,
+    region: str = Query("west", description="europe, west ou east"),
+):
+    return _gameinfo_get(f"/guilds/{guild_id}/members", region=region)
 
 
 @router.get("/alliance/{alliance_id}")
 @limiter.limit("30/minute")
-def alliance_profile(request: Request, alliance_id: str):
-    return _gameinfo_get(f"/alliances/{alliance_id}")
+def alliance_profile(
+    request: Request,
+    alliance_id: str,
+    region: str = Query("west", description="europe, west ou east"),
+):
+    return _gameinfo_get(f"/alliances/{alliance_id}", region=region)
 
 
 @router.get("/meta-market")
@@ -1093,7 +1123,7 @@ def meta_market(
     _validate_region(region)
     city_list = _parse_cities(cities, fallback=DEFAULT_CITY_FALLBACK)
 
-    events = _gameinfo_get("/events", {"limit": kill_limit})
+    events = _gameinfo_get("/events", {"limit": kill_limit}, region=region)
     weapon_counter: Counter[str] = Counter()
 
     for event in events:
@@ -1298,7 +1328,7 @@ def meta_builds(
     _validate_region(region)
     city_list = _parse_cities(None, fallback=DEFAULT_CITY_FALLBACK)
 
-    events = _gameinfo_get("/events", {"limit": kill_limit})
+    events = _gameinfo_get("/events", {"limit": kill_limit}, region=region)
 
     # Group builds by signature
     builds_map: Dict[str, dict] = {}
@@ -1380,13 +1410,17 @@ def meta_builds(
 
 @router.get("/guild/{guild_id}/summary")
 @limiter.limit("20/minute")
-def guild_summary(request: Request, guild_id: str):
+def guild_summary(
+    request: Request,
+    guild_id: str,
+    region: str = Query("west", description="europe, west ou east"),
+):
     """
     Lightweight guild summary — stats only, no pricing.
     Returns guild info + aggregated kill/death fame.
     """
-    guild = _gameinfo_get(f"/guilds/{guild_id}")
-    members = _gameinfo_get(f"/guilds/{guild_id}/members")
+    guild = _gameinfo_get(f"/guilds/{guild_id}", region=region)
+    members = _gameinfo_get(f"/guilds/{guild_id}/members", region=region)
 
     total_kill_fame = sum(m.get("KillFame", 0) for m in members)
     total_death_fame = sum(m.get("DeathFame", 0) for m in members)
@@ -1440,7 +1474,7 @@ def guild_economy(
     """
     _validate_region(region)
     city_list = _parse_cities(None, fallback=DEFAULT_CITY_FALLBACK)
-    members = _gameinfo_get(f"/guilds/{guild_id}/members")
+    members = _gameinfo_get(f"/guilds/{guild_id}/members", region=region)
 
     # Pick top members by KillFame
     top_members = sorted(members, key=lambda m: m.get("KillFame", 0), reverse=True)[:member_limit]
@@ -1460,7 +1494,7 @@ def guild_economy(
 
         # Fetch recent kills for this member
         try:
-            kills = _gameinfo_get(f"/players/{mid}/kills", {"limit": 10})
+            kills = _gameinfo_get(f"/players/{mid}/kills", {"limit": 10}, region=region)
         except Exception:
             kills = []
 
@@ -1475,7 +1509,7 @@ def guild_economy(
 
         # Fetch recent deaths for this member
         try:
-            deaths = _gameinfo_get(f"/players/{mid}/deaths", {"limit": 10})
+            deaths = _gameinfo_get(f"/players/{mid}/deaths", {"limit": 10}, region=region)
         except Exception:
             deaths = []
 

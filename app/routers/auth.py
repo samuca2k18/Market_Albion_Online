@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import os
 
 from fastapi import (
     APIRouter,
@@ -40,12 +41,24 @@ from app.services.mailer import send_verification_email
 router = APIRouter(tags=["Autenticação"])
 
 
+def _cookie_secure() -> bool:
+    if os.getenv("TESTING") == "true":
+        return settings.REFRESH_COOKIE_SECURE
+
+    if settings.REFRESH_COOKIE_SECURE:
+        return True
+
+    frontend_url = (settings.FRONTEND_URL or "").strip().lower()
+    app_base_url = (settings.APP_BASE_URL or "").strip().lower()
+    return frontend_url.startswith("https://") or app_base_url.startswith("https://")
+
+
 def _cookie_samesite() -> str:
     same_site = (settings.REFRESH_COOKIE_SAMESITE or "lax").strip().lower()
     if same_site not in {"lax", "strict", "none"}:
         same_site = "lax"
     # Browsers reject SameSite=None without Secure.
-    if same_site == "none" and not settings.REFRESH_COOKIE_SECURE:
+    if same_site == "none" and not _cookie_secure():
         same_site = "lax"
     return same_site
 
@@ -61,7 +74,7 @@ def _set_refresh_cookie(response: Response, refresh_token_value: str) -> None:
         expires=max_age,
         path=cookie_path,
         domain=cookie_domain,
-        secure=settings.REFRESH_COOKIE_SECURE,
+        secure=_cookie_secure(),
         httponly=True,
         samesite=_cookie_samesite(),
     )
@@ -204,7 +217,9 @@ def verify_email(token: str = Query(..., min_length=10), db: Session = Depends(g
     summary="Reenviar link de verificação",
     response_model=VerificationMessage,
 )
+@limiter.limit("5/minute")
 def resend_verification(
+    request: Request,
     payload: ResendVerificationRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -217,7 +232,7 @@ def resend_verification(
         return neutral
 
     if user.is_verified:
-        return {"message": "E-mail já verificado."}
+        return neutral
 
     token = generate_verification_token()
     user.verification_token = token

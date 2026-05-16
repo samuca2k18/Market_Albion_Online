@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
+import logging
 import os
+import secrets
 import statistics
 import requests
 
@@ -13,8 +15,8 @@ from app.utils.albion_client import get_prices, get_price_history
 from app.services.mailer import send_price_alert_email
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
+logger = logging.getLogger("albion_market")
 
-CRON_SECRET = os.getenv("CRON_SECRET")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -283,7 +285,10 @@ def run_checker(
 ):
     """Endpoint HTTP para disparar a verificação manualmente (cron externo ou admin)."""
     current_cron_secret = os.getenv("CRON_SECRET")
-    if current_cron_secret and x_cron_secret != current_cron_secret:
+    if not current_cron_secret:
+        raise HTTPException(status_code=503, detail="CRON_SECRET not configured")
+
+    if not x_cron_secret or not secrets.compare_digest(x_cron_secret, current_cron_secret):
         raise HTTPException(status_code=401, detail="Invalid secret")
 
     return run_checker_internal(db)
@@ -315,14 +320,21 @@ def _fire_alert(
     # e-mail
     user = db.query(models.User).filter_by(id=alert.user_id).first()
     if user and user.email:
-        send_price_alert_email(
-            to_email=user.email,
-            item=item_label,
-            current_price=current_price,
-            city=alert.city,
-            expected_price=expected_price,
-            percent_below=float(alert.percent_below or 0),
-        )
+        try:
+            send_price_alert_email(
+                to_email=user.email,
+                item=item_label,
+                current_price=current_price,
+                city=alert.city,
+                expected_price=expected_price,
+                percent_below=float(alert.percent_below or 0),
+            )
+        except Exception:
+            logger.exception(
+                "Falha ao enviar e-mail de alerta para user_id=%s item=%s",
+                alert.user_id,
+                item_label,
+            )
 
     _send_optional_webhooks(
         item=item_label,

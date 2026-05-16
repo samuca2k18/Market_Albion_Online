@@ -10,7 +10,7 @@ from typing import Any
 
 import requests
 from cachetools import TTLCache
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from app.models.schemas import CraftingResponseSchema, CraftingRowSchema
 
 # Configuração de Logs estruturados
@@ -49,7 +49,25 @@ for _candidate in _candidate_paths:
     if _try_add_file_handler(_candidate):
         break
 
-router = APIRouter(prefix="/openalbion", tags=["OpenAlbion Proxy"])
+PUBLIC_WINDOW_SECONDS = 60
+PUBLIC_MAX_REQUESTS_PER_IP = 120
+_public_hits: TTLCache = TTLCache(maxsize=20_000, ttl=PUBLIC_WINDOW_SECONDS)
+
+
+def _public_rate_limit(request: Request) -> None:
+    client_host = request.client.host if request.client else "unknown"
+    key = f"{client_host}:{request.url.path}"
+    current = int(_public_hits.get(key, 0)) + 1
+    _public_hits[key] = current
+    if current > PUBLIC_MAX_REQUESTS_PER_IP:
+        raise HTTPException(429, "Muitas requisições. Tente novamente em instantes.")
+
+
+router = APIRouter(
+    prefix="/openalbion",
+    tags=["OpenAlbion Proxy"],
+    dependencies=[Depends(_public_rate_limit)],
+)
 
 OPENALBION_BASE = "https://api.openalbion.com/api/v3"
 

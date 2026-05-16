@@ -77,6 +77,9 @@ def get_current_user(
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        scope: str = payload.get("scope", "")
+        if scope not in {"", "access_token"}:
+            raise credentials_exception
         username = payload.get("sub")
         if not username:
             raise credentials_exception

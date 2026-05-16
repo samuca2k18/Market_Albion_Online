@@ -9,6 +9,7 @@ from time import monotonic
 from fastapi import APIRouter, Query, Request
 from sse_starlette.sse import EventSourceResponse
 
+from app.core.limiter import limiter
 from app.utils.albion_client import get_prices
 
 router = APIRouter(prefix="/stream", tags=["Live Price Stream (SSE)"])
@@ -174,6 +175,7 @@ async def _price_generator(
 
 
 @router.get("/prices")
+@limiter.limit("20/minute")
 async def stream_prices(
     request: Request,
     items: str | None = Query(

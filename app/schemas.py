@@ -31,8 +31,8 @@ class UserCreate(BaseModel):
         """Valida o nome de usuário."""
         if not v.strip():
             raise ValueError("Nome de usuário não pode estar vazio")
-        if not v.replace("_", "").replace("-", "").isalnum():
-            raise ValueError("Nome de usuário deve conter apenas letras, números, _ e -")
+        if not v.replace("_", "").replace("-", "").replace("@", "").replace(".", "").isalnum():
+            raise ValueError("Nome de usuário deve conter apenas letras, números, _, -, @ e .")
         return v.strip()
 
     model_config = {
@@ -175,23 +175,23 @@ class PriceAlertCreate(BaseModel):
     item_id: str
     display_name: Optional[str] = None
     city: Optional[str] = None
-    quality: Optional[int] = None
+    quality: Optional[int] = Field(default=None, ge=1, le=5)
 
     # manual absoluto
-    target_price: Optional[float] = None
+    target_price: Optional[float] = Field(default=None, gt=0)
 
     # “abaixo do esperado” manual
-    expected_price: Optional[float] = None
-    percent_below: Optional[float] = 20.0  # padrão
+    expected_price: Optional[float] = Field(default=None, gt=0)
+    percent_below: Optional[float] = Field(default=20.0, gt=0, le=100)  # padrão
 
     # IA: calcula expected_price sozinho pelo histórico
     use_ai_expected: bool = True
-    ai_days: int = 7
+    ai_days: int = Field(default=7, ge=1, le=30)
     ai_resolution: str = "6h"   # "1h" | "6h" | "24h"
     ai_stat: str = "median"     # "median" | "mean"
-    ai_min_points: int = 10
+    ai_min_points: int = Field(default=10, ge=1, le=1000)
 
-    cooldown_minutes: int = 60
+    cooldown_minutes: int = Field(default=60, ge=0, le=1440)
 
     @field_validator("item_id")
     @classmethod
@@ -207,6 +207,22 @@ class PriceAlertCreate(BaseModel):
             return None
         val = v.strip()
         return val or None
+
+    @field_validator("ai_resolution")
+    @classmethod
+    def validate_ai_resolution(cls, v: str) -> str:
+        value = (v or "").strip().lower()
+        if value not in {"1h", "6h", "24h"}:
+            raise ValueError("ai_resolution deve ser 1h, 6h ou 24h")
+        return value
+
+    @field_validator("ai_stat")
+    @classmethod
+    def validate_ai_stat(cls, v: str) -> str:
+        value = (v or "").strip().lower()
+        if value not in {"median", "mean"}:
+            raise ValueError("ai_stat deve ser median ou mean")
+        return value
 
     @model_validator(mode="after")
     def validate_rule(self):
