@@ -601,7 +601,7 @@ A documentação inclui:
 | POST | `/alerts` | Criar alerta de preço | ✅ |
 | GET | `/alerts` | Listar meus alertas | ✅ |
 | DELETE | `/alerts/{alert_id}` | Remover alerta | ✅ |
-| POST | `/alerts/run-check` | Disparar verificação de alertas (cron) | 🔑 |
+| GET/POST | `/alerts/run-check` | Disparar verificação de alertas (cron) | 🔑 |
 
 ### Sistema
 
@@ -609,7 +609,7 @@ A documentação inclui:
 |--------|----------|-----------|------|
 | GET | `/health` | Health check | ❌ |
 
-> 🔑 = requer header `X-Cron-Secret` com o valor de `CRON_SECRET`
+> 🔑 = requer `X-Cron-Secret: <CRON_SECRET>` ou `Authorization: Bearer <CRON_SECRET>` (formato usado pelo Vercel Cron)
 
 ---
 

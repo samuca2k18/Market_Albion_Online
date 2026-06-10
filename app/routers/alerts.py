@@ -278,19 +278,31 @@ def run_checker_internal(db: Session) -> dict:
     return {"checked": checked, "triggered": triggered}
 
 
-@router.post("/run-check")
-def run_checker(
+def _validate_cron_secret(
     x_cron_secret: Optional[str] = Header(None),
-    db: Session = Depends(get_db),
-):
-    """Endpoint HTTP para disparar a verificação manualmente (cron externo ou admin)."""
+    authorization: Optional[str] = Header(None),
+) -> None:
     current_cron_secret = os.getenv("CRON_SECRET")
     if not current_cron_secret:
         raise HTTPException(status_code=503, detail="CRON_SECRET not configured")
 
-    if not x_cron_secret or not secrets.compare_digest(x_cron_secret, current_cron_secret):
+    bearer_secret = None
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() == "bearer" and token:
+            bearer_secret = token
+
+    provided_secret = x_cron_secret or bearer_secret
+    if not provided_secret or not secrets.compare_digest(provided_secret, current_cron_secret):
         raise HTTPException(status_code=401, detail="Invalid secret")
 
+
+@router.api_route("/run-check", methods=["GET", "POST"])
+def run_checker(
+    db: Session = Depends(get_db),
+    _: None = Depends(_validate_cron_secret),
+):
+    """Endpoint HTTP para disparar a verificação de alertas (Vercel cron ou cron externo)."""
     return run_checker_internal(db)
 
 
