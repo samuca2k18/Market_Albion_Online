@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from app.core.limiter import limiter
 from app.core.config import settings
 from app.database import Base, engine, SessionLocal
-from app.routers import alerts, auth, items, albion, health, openalbion, catalog, stream
+from app.routers import alerts, auth, items, albion, health, openalbion, catalog, stream, craft
 
 # ── Logging ────────────────────────────────────────────────────────────────
 logger = logging.getLogger("albion_market")
@@ -29,6 +29,16 @@ if not logger.handlers:
 # Cria tabelas que ainda não existem (DEV); em produção use `alembic upgrade head`
 if os.getenv("TESTING") != "true":
     Base.metadata.create_all(bind=engine)
+    # Best-effort additive column for alerts reliability (P1.3)
+    try:
+        from sqlalchemy import text, inspect
+        insp = inspect(engine)
+        cols = {c["name"] for c in insp.get_columns("price_alerts")} if "price_alerts" in insp.get_table_names() else set()
+        if "last_checked_at" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE price_alerts ADD COLUMN last_checked_at TIMESTAMP WITH TIME ZONE"))
+    except Exception as exc:
+        logger.warning("Could not ensure price_alerts.last_checked_at: %s", exc)
 
 
 # ── Lifespan (startup / shutdown) ──────────────────────────────────────────
@@ -86,6 +96,7 @@ app.include_router(alerts.router)
 app.include_router(openalbion.router)
 app.include_router(catalog.router)
 app.include_router(stream.router)
+app.include_router(craft.router)
 
 
 @app.get("/")

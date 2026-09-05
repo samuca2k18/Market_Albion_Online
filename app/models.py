@@ -73,6 +73,7 @@ class PriceAlert(Base):
 
     cooldown_minutes = Column(Integer, default=60)
     last_triggered_at = Column(DateTime(timezone=True), nullable=True)
+    last_checked_at = Column(DateTime(timezone=True), nullable=True)
 
     is_active = Column(Boolean, default=True)
 

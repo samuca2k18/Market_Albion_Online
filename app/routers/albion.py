@@ -788,6 +788,7 @@ def arbitrage_route_calculator(
     setup_fee: float = Query(0.01, ge=0, le=0.1),
     mount_capacity: float = Query(1200, gt=0, description="Capacidade da montaria"),
     default_weight: float = Query(1.0, gt=0, description="Peso fallback por item"),
+    budget_cap: float = Query(0, ge=0, description="Orçamento máximo (0 = sem limite)"),
     max_results: int = Query(100, ge=10, le=300),
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
@@ -817,6 +818,7 @@ def arbitrage_route_calculator(
             "destination": destination_city,
             "mount_capacity": mount_capacity,
             "default_weight": default_weight,
+            "budget_cap": budget_cap,
             "tax": tax,
             "setup_fee": setup_fee,
             "item_count_considered": 0,
@@ -875,12 +877,16 @@ def arbitrage_route_calculator(
         weight_sources[weight_source] += 1
 
         max_units = int(mount_capacity // max(item_weight, 0.01))
+        if budget_cap and budget_cap > 0 and unit_cost > 0:
+            max_by_budget = int(budget_cap // unit_cost)
+            max_units = min(max_units, max_by_budget)
         if max_units <= 0:
             continue
 
         total_weight = round(max_units * item_weight, 2)
         trip_profit = int(unit_profit * max_units)
         unit_roi = (unit_profit / unit_cost) * 100 if unit_cost > 0 else 0
+        profit_per_kg = round(unit_profit / max(item_weight, 0.01), 2)
 
         opportunities.append(
             {
@@ -898,6 +904,7 @@ def arbitrage_route_calculator(
                 "total_weight": total_weight,
                 "trip_profit": trip_profit,
                 "investment_required": int(unit_cost * max_units),
+                "profit_per_kg": profit_per_kg,
                 "buy_date": buy_data.get("updated_at", ""),
                 "sell_date": sell_data.get("updated_at", ""),
             }
@@ -911,6 +918,7 @@ def arbitrage_route_calculator(
         "destination": destination_city,
         "mount_capacity": mount_capacity,
         "default_weight": default_weight,
+        "budget_cap": budget_cap,
         "tax": tax,
         "setup_fee": setup_fee,
         "item_count_considered": len(requested_items),
@@ -1614,4 +1622,296 @@ def guild_economy(
             "members_analyzed": len(economy_rows),
         },
         "members": economy_rows,
+    }
+
+
+# ── Black Market flips + multi-city price grid (P0.2 / P1.1) ───────────────
+
+BM_CITY = "Black Market"
+ROYAL_CITIES_BM = [
+    "Bridgewatch",
+    "Martlock",
+    "Thetford",
+    "Lymhurst",
+    "Fort Sterling",
+    "Caerleon",
+]
+
+
+def _parse_iso_age_hours(raw: str | None) -> float | None:
+    if not raw:
+        return None
+    try:
+        s = str(raw).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds() / 3600.0)
+    except Exception:
+        return None
+
+
+def _common_gear_set(limit: int = 200) -> List[str]:
+    """Curated T4–T8 weapons+armor unique names for BM flip scans."""
+    from app.utils import catalog_index
+
+    out: List[str] = []
+    seen = set()
+    for item_type in ("weapon", "armor"):
+        for tier in range(4, 9):
+            for row in catalog_index.list_items(item_type, tier=tier, limit=1000):
+                unique = (row.get("unique_name") or "").upper()
+                if not unique or "@" in unique or unique in seen:
+                    continue
+                if not any(t in unique for t in ("_MAIN_", "_2H_", "_OFF_", "_HEAD_", "_ARMOR_", "_SHOES_")):
+                    continue
+                seen.add(unique)
+                out.append(unique)
+                if len(out) >= limit:
+                    return out
+    return out
+
+
+@router.get("/bm-flips")
+@limiter.limit("20/minute")
+def black_market_flips(
+    request: Request,
+    region: str = Query("west"),
+    cities: str = Query(",".join(ROYAL_CITIES_BM), description="Cidades reais (compra)"),
+    min_profit: float = Query(0, ge=0),
+    max_age_hours: float = Query(12, ge=0.5, le=72),
+    limit: int = Query(50, ge=1, le=200),
+    tax: float = Query(0.0, ge=0, le=0.25, description="Taxa ao vender no BM (geralmente 0)"),
+    setup_fee: float = Query(0.025, ge=0, le=0.1, description="Taxa ao comprar (ordem instant)"),
+    items: List[str] = Query(None),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Flip royals -> Black Market: min sell_price_min across royals vs BM buy_price_max.
+    """
+    _validate_region(region)
+    royal_cities = _parse_cities(cities, fallback=ROYAL_CITIES_BM)
+    # Ensure BM not in buy cities
+    royal_cities = [c for c in royal_cities if c.lower() != "black market"]
+
+    requested = _normalize_item_list(items or [])
+    if not requested:
+        user_items = db.query(UserItem).filter(UserItem.user_id == user.id).limit(200).all()
+        requested = _normalize_item_list([ui.item_name for ui in user_items])
+    if not requested:
+        requested = _common_gear_set(220)
+
+    locations = royal_cities + [BM_CITY]
+    all_rows: List[Dict[str, Any]] = []
+    for i in range(0, len(requested), 60):
+        chunk = requested[i : i + 60]
+        all_rows.extend(
+            get_prices(chunk, locations=locations, region=region, mode="any")
+        )
+
+    # Index: item -> city -> best sell_min / buy_max
+    by_item: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for row in all_rows:
+        item_id = _item_base_id(row.get("item_id", ""))
+        city = _normalize_city_name(row.get("city", ""))
+        if not item_id or not city:
+            continue
+        slot = by_item.setdefault(item_id, {}).setdefault(
+            city,
+            {"sell_min": None, "sell_date": "", "buy_max": None, "buy_date": ""},
+        )
+        sell = row.get("sell_price_min") or 0
+        buy = row.get("buy_price_max") or 0
+        if sell > 0 and (slot["sell_min"] is None or sell < slot["sell_min"]):
+            slot["sell_min"] = float(sell)
+            slot["sell_date"] = row.get("sell_price_min_date") or ""
+        if buy > 0 and (slot["buy_max"] is None or buy > slot["buy_max"]):
+            slot["buy_max"] = float(buy)
+            slot["buy_date"] = row.get("buy_price_max_date") or ""
+
+    flips: List[Dict[str, Any]] = []
+    for item_id, city_map in by_item.items():
+        bm = city_map.get(BM_CITY) or {}
+        bm_buy = bm.get("buy_max")
+        if not bm_buy or bm_buy <= 0:
+            continue
+        bm_age = _parse_iso_age_hours(bm.get("buy_date"))
+        if bm_age is not None and bm_age > max_age_hours:
+            continue
+
+        best_buy_city = None
+        best_buy_price = None
+        best_buy_date = ""
+        for city in royal_cities:
+            slot = city_map.get(city)
+            if not slot or not slot.get("sell_min"):
+                continue
+            age = _parse_iso_age_hours(slot.get("sell_date"))
+            if age is not None and age > max_age_hours:
+                continue
+            price = slot["sell_min"]
+            if best_buy_price is None or price < best_buy_price:
+                best_buy_price = price
+                best_buy_city = city
+                best_buy_date = slot.get("sell_date") or ""
+
+        if best_buy_city is None or best_buy_price is None:
+            continue
+
+        cost = best_buy_price * (1 + setup_fee)
+        revenue = bm_buy * (1 - tax)
+        profit = revenue - cost
+        if profit < min_profit:
+            continue
+        roi = (profit / cost) * 100 if cost > 0 else 0
+        buy_age = _parse_iso_age_hours(best_buy_date)
+        weight, weight_source = _resolve_item_weight(item_id, 1.0)
+        names = {}
+        from app.utils.albion_index import ITEM_BY_UNIQUE
+        reg = ITEM_BY_UNIQUE.get(item_id)
+        if reg:
+            names = {"name_pt": reg.get("PT-BR", item_id), "name_en": reg.get("EN-US", item_id)}
+        else:
+            names = {"name_pt": item_id, "name_en": item_id}
+
+        flips.append(
+            {
+                "item_id": item_id,
+                "name_pt": names["name_pt"],
+                "name_en": names["name_en"],
+                "buy_city": best_buy_city,
+                "buy_price": int(best_buy_price),
+                "buy_date": best_buy_date,
+                "buy_age_hours": None if buy_age is None else round(buy_age, 2),
+                "bm_buy_price": int(bm_buy),
+                "bm_date": bm.get("buy_date") or "",
+                "bm_age_hours": None if bm_age is None else round(bm_age, 2),
+                "profit": int(profit),
+                "roi": round(roi, 2),
+                "tax": tax,
+                "setup_fee": setup_fee,
+                "weight": weight,
+                "weight_source": weight_source,
+                "profit_per_kg": round(profit / max(weight, 0.01), 2),
+            }
+        )
+
+    flips.sort(key=lambda x: x["profit"], reverse=True)
+    return {
+        "region": region,
+        "cities": royal_cities,
+        "min_profit": min_profit,
+        "max_age_hours": max_age_hours,
+        "items_considered": len(requested),
+        "flips": flips[:limit],
+    }
+
+
+@router.get("/price-grid")
+@limiter.limit("30/minute")
+def price_grid(
+    request: Request,
+    items: str = Query(..., description="UniqueNames separados por vírgula"),
+    region: str = Query("west"),
+    cities: str = Query(None, description="Cidades (default: royals + BM)"),
+    qualities: str = Query("1", description="Qualidades separadas por vírgula"),
+    current_user=Depends(get_current_user),
+):
+    """
+    Matrix item × city with sell_min, buy_max and timestamps.
+    """
+    _validate_region(region)
+    item_list = _normalize_item_list([i.strip() for i in items.split(",") if i.strip()])
+    if not item_list:
+        raise HTTPException(400, "Informe ao menos um item.")
+    if len(item_list) > 40:
+        raise HTTPException(400, "Máximo de 40 itens por consulta.")
+
+    city_list = _parse_cities(
+        cities,
+        fallback=ROYAL_CITIES_BM + [BM_CITY],
+    )
+    quality_list = [int(q) for q in qualities.split(",") if q.strip()] or [1]
+
+    rows = get_prices(
+        item_list,
+        locations=city_list,
+        qualities=quality_list,
+        region=region,
+        mode="any",
+    )
+
+    # matrix[item][city] = {sell_min, buy_max, dates, quality}
+    matrix: Dict[str, Dict[str, Dict[str, Any]]] = {
+        item_id: {city: None for city in city_list} for item_id in item_list
+    }
+
+    for row in rows:
+        item_id = (row.get("item_id") or "").upper()
+        city = _normalize_city_name(row.get("city", ""))
+        if item_id not in matrix or city not in matrix[item_id]:
+            # also try base id
+            base = _item_base_id(item_id)
+            if base in matrix and city in matrix[base]:
+                item_id = base
+            else:
+                continue
+        cell = matrix[item_id][city]
+        sell = row.get("sell_price_min") or 0
+        buy = row.get("buy_price_max") or 0
+        entry = cell or {
+            "sell_min": None,
+            "sell_min_date": None,
+            "buy_max": None,
+            "buy_max_date": None,
+            "quality": int(row.get("quality") or 1),
+        }
+        if sell > 0 and (entry["sell_min"] is None or sell < entry["sell_min"]):
+            entry["sell_min"] = int(sell)
+            entry["sell_min_date"] = row.get("sell_price_min_date")
+        if buy > 0 and (entry["buy_max"] is None or buy > entry["buy_max"]):
+            entry["buy_max"] = int(buy)
+            entry["buy_max_date"] = row.get("buy_price_max_date")
+        entry["quality"] = int(row.get("quality") or entry["quality"])
+        # age
+        ages = []
+        for d in (entry.get("sell_min_date"), entry.get("buy_max_date")):
+            age = _parse_iso_age_hours(d)
+            if age is not None:
+                ages.append(age)
+        entry["age_hours"] = round(max(ages), 2) if ages else None
+        matrix[item_id][city] = entry
+
+    from app.utils.albion_index import ITEM_BY_UNIQUE
+
+    items_out = []
+    for item_id in item_list:
+        reg = ITEM_BY_UNIQUE.get(item_id) or {}
+        cities_out = []
+        sell_vals = []
+        buy_vals = []
+        for city in city_list:
+            cell = matrix[item_id][city]
+            cities_out.append({"city": city, **(cell or {"sell_min": None, "buy_max": None, "age_hours": None})})
+            if cell and cell.get("sell_min"):
+                sell_vals.append(cell["sell_min"])
+            if cell and cell.get("buy_max"):
+                buy_vals.append(cell["buy_max"])
+        items_out.append(
+            {
+                "item_id": item_id,
+                "name_pt": reg.get("PT-BR", item_id),
+                "name_en": reg.get("EN-US", item_id),
+                "cities": cities_out,
+                "cheapest_sell": min(sell_vals) if sell_vals else None,
+                "best_buy": max(buy_vals) if buy_vals else None,
+            }
+        )
+
+    return {
+        "region": region,
+        "cities": city_list,
+        "qualities": quality_list,
+        "items": items_out,
     }
