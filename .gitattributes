@@ -1,7 +1,2 @@
-# .gitattributes — Git LFS para arquivos JSON grandes de itens do Albion
-# Instalar Git LFS: git lfs install
-# Após o primeiro commit com LFS, rode: git lfs migrate import --include="*.json"
-
-nomes_pt_br.json        filter=lfs diff=lfs merge=lfs -text
-nomes_en_us.json        filter=lfs diff=lfs merge=lfs -text
-nomes_simplificados.json filter=lfs diff=lfs merge=lfs -text
+# JSON item catalogs are tracked as regular git blobs (not Git LFS).
+# Vercel does not fetch Git LFS objects, so LFS pointers broke production.

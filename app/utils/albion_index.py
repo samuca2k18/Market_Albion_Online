@@ -1,9 +1,13 @@
 # app/utils/albion_index.py
 import json
 import unicodedata
+from pathlib import Path
 from typing import Dict, List, Literal
 
 Lang = Literal["pt_br", "en_us"]
+
+# Repo root is two levels up from app/utils/
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def normalizar(texto: str) -> str:
@@ -21,9 +25,19 @@ ITEM_BY_UNIQUE: Dict[str, dict] = {}
 
 
 def _registrar_itens(caminho: str, lang: Lang):
+    path = Path(caminho)
     nome_campo = "PT-BR" if lang == "pt_br" else "EN-US"
-    with open(caminho, "r", encoding="utf-8") as f:
-        dados = json.load(f)
+    if not path.is_file():
+        raise FileNotFoundError(f"Albion item catalog missing: {path}")
+    if path.stat().st_size == 0:
+        raise ValueError(f"Albion item catalog is empty: {path}")
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            dados = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Albion item catalog is not valid JSON (is it a Git LFS pointer?): {path}"
+        ) from e
 
     for item in dados:
         unique = item.get("UniqueName")
@@ -39,8 +53,8 @@ def _registrar_itens(caminho: str, lang: Lang):
         NAME_INDEX_EXACT[lang].setdefault(chave, []).append(registro)
 
 
-_registrar_itens("nomes_pt_br.json", "pt_br")
-_registrar_itens("nomes_en_us.json", "en_us")
+_registrar_itens(str(_REPO_ROOT / "nomes_pt_br.json"), "pt_br")
+_registrar_itens(str(_REPO_ROOT / "nomes_en_us.json"), "en_us")
 
 # Lista combinada com os campos PT e EN preenchidos
 ALBION_ITEMS = list(ITEM_BY_UNIQUE.values())
