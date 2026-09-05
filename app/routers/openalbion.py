@@ -111,7 +111,17 @@ def _cached_get(url: str, params: dict | None = None, ttl: int = DEFAULT_TTL) ->
         logger.error(f"[OpenAlbion] Falha: {status_code} | URL: {url}")
         if cache_key in _cache:
             return _cache[cache_key]
-        raise HTTPException(status_code, f"Erro na comunicacao com OpenAlbion.")
+        if status_code in (402, 403):
+            raise HTTPException(
+                503,
+                "A base OpenAlbion está indisponível no momento (serviço externo). Tente novamente mais tarde.",
+            )
+        if status_code >= 500:
+            raise HTTPException(
+                502,
+                "A API OpenAlbion retornou um erro interno. Tente novamente mais tarde.",
+            )
+        raise HTTPException(status_code, "Erro na comunicacao com OpenAlbion.")
 
 
 def _normalize_crafting_payload(payload: dict[str, Any]) -> dict[str, Any]:
