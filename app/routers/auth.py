@@ -1,33 +1,93 @@
-# app/routers/auth.py
 from datetime import datetime, timezone
+import os
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query, BackgroundTasks
-from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
-from jose import JWTError, jwt
-
-from app.core.limiter import limiter
-from app.dependencies import get_db, get_current_user
-from app.models import User
-from app.schemas import (
-    UserCreate,
-    UserOut,
-    ResendVerificationRequest,
-    VerificationMessage,
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Cookie,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    status,
+    Query,
 )
+from fastapi.security import OAuth2PasswordRequestForm
+from jose import JWTError, jwt
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.core.limiter import limiter
 from app.core.security import (
-    get_password_hash,
-    verify_password,
+    ALGORITHM,
+    SECRET_KEY,
     create_access_token,
     create_refresh_token,
-    SECRET_KEY,
-    ALGORITHM,
+    get_password_hash,
+    verify_password,
+)
+from app.dependencies import get_current_user, get_db
+from app.models import User
+from app.schemas import (
+    ResendVerificationRequest,
+    UserCreate,
+    UserOut,
+    VerificationMessage,
 )
 from app.services.email_verify import generate_verification_token, token_expiration
 from app.services.mailer import send_verification_email
 
 router = APIRouter(tags=["Autenticação"])
+
+
+def _cookie_secure() -> bool:
+    if os.getenv("TESTING") == "true":
+        return settings.REFRESH_COOKIE_SECURE
+
+    if settings.REFRESH_COOKIE_SECURE:
+        return True
+
+    frontend_url = (settings.FRONTEND_URL or "").strip().lower()
+    app_base_url = (settings.APP_BASE_URL or "").strip().lower()
+    return frontend_url.startswith("https://") or app_base_url.startswith("https://")
+
+
+def _cookie_samesite() -> str:
+    same_site = (settings.REFRESH_COOKIE_SAMESITE or "lax").strip().lower()
+    if same_site not in {"lax", "strict", "none"}:
+        same_site = "lax"
+    # Browsers reject SameSite=None without Secure.
+    if same_site == "none" and not _cookie_secure():
+        same_site = "lax"
+    return same_site
+
+
+def _set_refresh_cookie(response: Response, refresh_token_value: str) -> None:
+    max_age = int(settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60)
+    cookie_domain = settings.REFRESH_COOKIE_DOMAIN or None
+    cookie_path = settings.REFRESH_COOKIE_PATH or "/"
+    response.set_cookie(
+        key=settings.REFRESH_COOKIE_NAME,
+        value=refresh_token_value,
+        max_age=max_age,
+        expires=max_age,
+        path=cookie_path,
+        domain=cookie_domain,
+        secure=_cookie_secure(),
+        httponly=True,
+        samesite=_cookie_samesite(),
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    cookie_domain = settings.REFRESH_COOKIE_DOMAIN or None
+    cookie_path = settings.REFRESH_COOKIE_PATH or "/"
+    response.delete_cookie(
+        key=settings.REFRESH_COOKIE_NAME,
+        path=cookie_path,
+        domain=cookie_domain,
+    )
 
 
 @router.post(
@@ -66,7 +126,6 @@ def signup(
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
-
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=400, detail="Erro ao cadastrar usuário.")
@@ -74,21 +133,24 @@ def signup(
     def send_email_task():
         try:
             send_verification_email(new_user.email, token)
-        except Exception as e:
+        except Exception as exc:  # pragma: no cover
             import logging
-            logging.error(f"Erro ao enviar email de verificação para {new_user.email}: {str(e)}")
+
+            logging.error(
+                "Erro ao enviar email de verificação para %s: %s",
+                new_user.email,
+                exc,
+            )
 
     background_tasks.add_task(send_email_task)
     return new_user
 
 
-@router.post(
-    "/login",
-    summary="Fazer login (bloqueado se e-mail não verificado)",
-)
+@router.post("/login", summary="Fazer login (bloqueado se e-mail não verificado)")
 @limiter.limit("5/minute")
 def login(
     request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
@@ -107,12 +169,19 @@ def login(
         )
 
     access_token = create_access_token({"sub": user.username})
-    refresh_token = create_refresh_token({"sub": user.username})
+    refresh_token_value = create_refresh_token({"sub": user.username})
+    _set_refresh_cookie(response, refresh_token_value)
+
     return {
         "access_token": access_token,
-        "refresh_token": refresh_token,
         "token_type": "bearer",
     }
+
+
+@router.post("/logout", summary="Encerra a sessão atual")
+def logout(response: Response):
+    _clear_refresh_cookie(response)
+    return {"message": "Sessão encerrada"}
 
 
 @router.get(
@@ -148,7 +217,9 @@ def verify_email(token: str = Query(..., min_length=10), db: Session = Depends(g
     summary="Reenviar link de verificação",
     response_model=VerificationMessage,
 )
+@limiter.limit("5/minute")
 def resend_verification(
+    request: Request,
     payload: ResendVerificationRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -161,7 +232,7 @@ def resend_verification(
         return neutral
 
     if user.is_verified:
-        return {"message": "E-mail já verificado."}
+        return neutral
 
     token = generate_verification_token()
     user.verification_token = token
@@ -170,10 +241,11 @@ def resend_verification(
 
     def send_email_task():
         import logging
+
         try:
             send_verification_email(user.email, token)
-        except Exception as e:
-            logging.error(f"ERRO ao reenviar email para {email}: {str(e)}", exc_info=True)
+        except Exception as exc:  # pragma: no cover
+            logging.error("Erro ao reenviar email para %s: %s", email, exc, exc_info=True)
 
     background_tasks.add_task(send_email_task)
     return neutral
@@ -184,29 +256,43 @@ def me(current_user: User = Depends(get_current_user)):
     return current_user
 
 
-@router.post("/refresh", summary="Renova o access token usando o refresh token")
+@router.post("/refresh", summary="Renova o access token usando refresh token em cookie HttpOnly")
 def refresh_token(
-    refresh_token: str = Query(..., description="Refresh token recebido no login"),
+    response: Response,
     db: Session = Depends(get_db),
+    refresh_token_value: str | None = Cookie(default=None, alias=settings.REFRESH_COOKIE_NAME),
 ):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Refresh token inválido ou expirado",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    if not refresh_token_value:
+        _clear_refresh_cookie(response)
+        raise credentials_exception
+
     try:
-        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(refresh_token_value, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("scope") != "refresh_token":
+            _clear_refresh_cookie(response)
             raise credentials_exception
         username: str = payload.get("sub")
         if not username:
+            _clear_refresh_cookie(response)
             raise credentials_exception
     except JWTError:
+        _clear_refresh_cookie(response)
         raise credentials_exception
 
     user = db.query(User).filter(User.username == username).first()
     if not user:
+        _clear_refresh_cookie(response)
         raise credentials_exception
 
     new_access_token = create_access_token({"sub": user.username})
+    # Rotacao do refresh token.
+    new_refresh_token = create_refresh_token({"sub": user.username})
+    _set_refresh_cookie(response, new_refresh_token)
+
     return {"access_token": new_access_token, "token_type": "bearer"}

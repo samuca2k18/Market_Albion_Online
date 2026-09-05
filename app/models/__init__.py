@@ -1,6 +1,5 @@
-from datetime import datetime
-
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, Float, func, UniqueConstraint
+﻿
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, func
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -20,26 +19,22 @@ class User(Base):
     verification_token_expires_at = Column(DateTime(timezone=True), nullable=True)
 
     items = relationship("UserItem", back_populates="user", cascade="all, delete-orphan")
-
     alerts = relationship("PriceAlert", back_populates="user", cascade="all, delete-orphan")
     notifications = relationship("UserNotification", back_populates="user", cascade="all, delete-orphan")
 
 
 class UserItem(Base):
     __tablename__ = "user_items"
-    __table_args__ = (
-        UniqueConstraint("user_id", "item_name", name="uq_user_items_user_item_name"),
-    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     item_name = Column(String, nullable=False)
     display_name = Column(String, nullable=True)
-    
+
     # Manual order for dashboard drag-and-drop
     sort_order = Column(Integer, nullable=False, default=0, server_default="0")
-    
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="items")
@@ -92,3 +87,6 @@ class UserNotification(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="notifications")
+
+
+__all__ = ["User", "UserItem", "PriceAlert", "UserNotification"]

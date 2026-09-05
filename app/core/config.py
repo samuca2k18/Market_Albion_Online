@@ -1,18 +1,19 @@
 # app/core/config.py
-from pydantic_settings import BaseSettings
 from typing import List
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # === JWT / Segurança ===
+    # === JWT / Security ===
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60      # 1 hora (seguro)
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 30        # refresh válido por 30 dias
-    CRON_SECRET: str | None = None             # segredo para proteger /alerts/run-check
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    CRON_SECRET: str | None = None
 
-    # === Banco de Dados ===
-    DATABASE_URL: str  # ← ESSA LINHA É OBRIGATÓRIA!
+    # === Database ===
+    DATABASE_URL: str
 
     # === Albion API ===
     ALBION_REGION: str = "europe"
@@ -25,9 +26,6 @@ class Settings(BaseSettings):
     ALBION_API_TIMEOUT: int = 15
 
     # === E-mail / SMTP / Resend ===
-    # Estes campos existem apenas para que o Pydantic não acuse erro de "extra inputs"
-    # quando estiverem definidos no .env. O serviço de e-mail hoje lê diretamente
-    # via os.getenv, então aqui eles são opcionais.
     SMTP_HOST: str | None = None
     SMTP_PORT: int = 587
     SMTP_USER: str | None = None
@@ -38,21 +36,33 @@ class Settings(BaseSettings):
     RESEND_FROM_EMAIL: str | None = None
     RESEND_REPLY_TO: str | None = None
 
-    # URLs auxiliares
+    # === URLs ===
     APP_BASE_URL: str | None = None
     FRONTEND_URL: str | None = None
 
-    # === Cidades padrão ===
+    # === Refresh token cookie ===
+    REFRESH_COOKIE_NAME: str = "refresh_token"
+    REFRESH_COOKIE_PATH: str = "/"
+    REFRESH_COOKIE_DOMAIN: str | None = None
+    REFRESH_COOKIE_SECURE: bool = False
+    REFRESH_COOKIE_SAMESITE: str = "lax"  # lax | strict | none
+
+    # === Default cities ===
     DEFAULT_CITIES: List[str] = [
-        "Bridgewatch", "Martlock", "Thetford", "Lymhurst",
-        "FortSterling", "Caerleon"
+        "Bridgewatch",
+        "Martlock",
+        "Thetford",
+        "Lymhurst",
+        "Fort Sterling",
+        "Caerleon",
+        "Brecilien",
     ]
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+    )
 
 
-# Instância global
 settings = Settings()

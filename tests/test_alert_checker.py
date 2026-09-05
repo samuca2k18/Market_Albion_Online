@@ -1,5 +1,6 @@
 import pytest
 from datetime import datetime, timedelta, timezone
+import os
 from app import models
 
 def test_alert_checker_http_endpoint(client, db):
@@ -38,6 +39,7 @@ def test_alert_checker_http_endpoint(client, db):
         db.commit()
 
         # 3. Chama o endpoint via client
+        os.environ["CRON_SECRET"] = "teste"
         headers = {"X-Cron-Secret": "teste"} 
         response = client.post("/alerts/run-check", headers=headers)
         
