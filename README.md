@@ -58,8 +58,34 @@ Albion Online é um MMORPG Sandbox mundo aberto onde você que faz a sua histór
 - ✅ **Histórico de preços** por item e cidade
 - ✅ Busca da cidade mais barata entre múltiplas cidades
 - ✅ Consulta em lote para todos os itens do usuário
+- ✅ **Indicador de frescor** — campo `updated_at` nos preços
 - ✅ Tratamento robusto de erros e timeouts
 - ✅ Suporte para todas as cidades principais do jogo
+
+### 💱 Monitor de Ouro (Gold Tracker)
+- ✅ Preço atual do ouro em tempo real
+- ✅ Variação percentual (últimas 24h)
+- ✅ Histórico com até 200 pontos de dados
+
+### ⚖️ Calculadora de Arbitragem
+- ✅ Identificação de oportunidades de trade entre cidades
+- ✅ Cálculo de lucro líquido com taxas reais (8% normal, 4% premium)
+- ✅ Diferenciação por **qualidade de item** (Normal a Obra-prima)
+- ✅ ROI (%) e ranking das top 100 oportunidades
+
+### 🚩 Monitor de Evento Bandit
+- ✅ Endpoint `/albion/bandit-event` com status do ciclo
+- ✅ Fases: ativo, em breve, esperando
+- ✅ Countdown em minutos até o próximo evento
+
+### 🛡️ Guild Hub & Integração OpenAlbion (Novo)
+- ✅ Roteiro `/openalbion` robusto para consulta e cache de guildas 
+- ✅ Análise de status e atividades da comunidade via API de terceiros (GameInfo)
+- ✅ Integrações para extração da economia e status do meta
+
+### 🗡️ Killboard
+- ✅ Proxy para API oficial de kills (`gameinfo.albiononline.com`)
+- ✅ Dados simplificados: killer/victim, guild, aliança, IP, arma, fame
 
 ### 🔔 Alertas de Preço
 - ✅ Criação de alertas com **preço alvo manual** ou **percentual abaixo da média**
@@ -69,10 +95,11 @@ Albion Online é um MMORPG Sandbox mundo aberto onde você que faz a sua histór
 - ✅ Ativação/desativação e remoção de alertas
 - ✅ Trigger manual via cron job com `CRON_SECRET`
 
-### 🔍 Busca de Itens
+### 🔍 Busca de Itens e Streaming
 - ✅ **Índice local com todos os itens do Albion** em PT-BR e EN-US
 - ✅ Busca exata e busca aproximada (score-based fuzzy search)
-- ✅ Endpoint `/albion/search/pt-br` e `/albion/search/en-us`
+- ✅ Endpoints em `/albion/search/pt-br` e `/albion/search/en-us`
+- ✅ Streaming de dados avançado para monitoramento (via roteador `stream.py`)
 - ✅ Rota legada `/albion/search` com fallback automático de idioma
 
 ### 🛠️ Recursos Profissionais
@@ -558,9 +585,14 @@ A documentação inclui:
 | GET | `/albion/search/pt-br?q=...` | Buscar itens por nome em PT-BR | ✅ |
 | GET | `/albion/search/en-us?q=...` | Buscar itens por nome em EN-US | ✅ |
 | GET | `/albion/search?q=...` | Buscar itens (PT-BR com fallback EN) | ✅ |
-| GET | `/albion/price/pt-br` | Consultar preços (idioma PT-BR) | ✅ |
-| GET | `/albion/price/en-us` | Consultar preços (idioma EN-US) | ✅ |
-| GET | `/albion/my-items-prices` | Consultar preços de todos os meus itens | ✅ |
+| GET | `/albion/prices/pt-br` | Consultar preços (idioma PT-BR) | ✅ |
+| GET | `/albion/prices/en-us` | Consultar preços (idioma EN-US) | ✅ |
+| GET | `/albion/my-items-prices` | Preços dos meus itens (com `updated_at`) | ✅ |
+| GET | `/albion/gold` | Preço do ouro e variação | ❌ |
+| GET | `/albion/history/{item_id}` | Histórico de preços (1h/6h/24h) | ✅ |
+| GET | `/albion/arbitrage` | Oportunidades de arbitragem entre cidades | ✅ |
+| GET | `/albion/bandit-event` | Status do Bandit Event (fase e countdown) | ❌ |
+| GET | `/albion/killboard` | Feed de kills em tempo real (proxy) | ❌ |
 
 ### Alertas de Preço
 
@@ -569,7 +601,7 @@ A documentação inclui:
 | POST | `/alerts` | Criar alerta de preço | ✅ |
 | GET | `/alerts` | Listar meus alertas | ✅ |
 | DELETE | `/alerts/{alert_id}` | Remover alerta | ✅ |
-| POST | `/alerts/trigger` | Disparar verificação de alertas (cron) | 🔑 |
+| GET/POST | `/alerts/run-check` | Disparar verificação de alertas (cron) | 🔑 |
 
 ### Sistema
 
@@ -577,7 +609,7 @@ A documentação inclui:
 |--------|----------|-----------|------|
 | GET | `/health` | Health check | ❌ |
 
-> 🔑 = requer header `X-Cron-Secret` com o valor de `CRON_SECRET`
+> 🔑 = requer `X-Cron-Secret: <CRON_SECRET>` ou `Authorization: Bearer <CRON_SECRET>` (formato usado pelo Vercel Cron)
 
 ---
 
@@ -727,14 +759,21 @@ curl -X POST "http://localhost:8000/alerts" \
 
 - [ ] Testes automatizados (pytest + httpx AsyncClient)
 - [ ] CI/CD com GitHub Actions
-- [ ] Frontend web (React/Next.js)
-- [ ] Dashboard de preços com gráficos históricos
+- [x] Frontend web (React + Vite + TypeScript)
+- [x] Dashboard de preços com gráficos históricos
+- [x] Monitor de preço do ouro em tempo real
+- [x] Calculadora de arbitragem com qualidade
+- [x] Killboard com feed de kills em tempo real
+- [x] Monitor de Bandit Event com countdown
+- [x] Indicador de frescor de dados
 - [ ] Paginação e filtros avançados nas listagens
 - [ ] Suporte a mais idiomas (DE, FR, RU, etc.)
 - [ ] Exportação de dados (CSV/Excel)
 - [ ] Rate limiting por usuário
 - [ ] Métricas e monitoramento (Prometheus / Grafana)
 - [ ] Notificações via Telegram/Discord além de e-mail
+- [ ] Integração NATS para Bandit Event em tempo real
+- [ ] Heatmap de preços multi-cidade
 - [ ] Comparação de preços entre regiões (Europe vs America vs Asia)
 
 ---

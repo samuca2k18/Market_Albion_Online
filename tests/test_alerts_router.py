@@ -121,6 +121,50 @@ def test_run_checker_manual(client):
     assert isinstance(data["triggered"], int)
 
 
+def test_run_checker_vercel_cron_creates_notification(client, auth_header, monkeypatch):
+    """Vercel Cron usa GET com Authorization: Bearer CRON_SECRET."""
+    monkeypatch.setenv("CRON_SECRET", "testsecret")
+    monkeypatch.setattr(
+        "app.routers.alerts.get_prices",
+        lambda items, cities, qualities: [{"sell_price_min": 500}],
+    )
+    monkeypatch.setattr(
+        "app.routers.alerts.send_price_alert_email",
+        lambda **kwargs: None,
+    )
+
+    create_res = client.post("/alerts/", json=ALERT_DATA, headers=auth_header)
+    assert create_res.status_code == 200
+
+    run_res = client.get(
+        "/alerts/run-check",
+        headers={"Authorization": "Bearer testsecret"},
+    )
+    assert run_res.status_code == 200
+    assert run_res.json()["triggered"] == 1
+
+    notifications_res = client.get("/alerts/notifications", headers=auth_header)
+    assert notifications_res.status_code == 200
+    notifications = notifications_res.json()
+    assert len(notifications) == 1
+    assert notifications[0]["is_read"] is False
+    assert "Bag chegou a 500" in notifications[0]["body"]
+
+    read_res = client.post(
+        f"/alerts/notifications/{notifications[0]['id']}/read",
+        headers=auth_header,
+    )
+    assert read_res.status_code == 200
+
+    unread_res = client.get(
+        "/alerts/notifications",
+        params={"unread": True},
+        headers=auth_header,
+    )
+    assert unread_res.status_code == 200
+    assert unread_res.json() == []
+
+
 def test_run_checker_invalid_secret(client):
     """Testa o disparo manual com secret inválido."""
     os.environ["CRON_SECRET"] = "testsecret"
@@ -129,3 +173,11 @@ def test_run_checker_invalid_secret(client):
     response = client.post("/alerts/run-check", headers=headers)
     assert response.status_code == 401
     assert "Invalid secret" in response.json()["detail"]
+
+
+def test_run_checker_without_configured_secret(client, monkeypatch):
+    """Endpoint deve falhar se CRON_SECRET não estiver configurado."""
+    monkeypatch.delenv("CRON_SECRET", raising=False)
+    response = client.post("/alerts/run-check", headers={"x-cron-secret": "any"})
+    assert response.status_code == 503
+    assert "CRON_SECRET not configured" in response.json()["detail"]

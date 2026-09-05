@@ -10,8 +10,9 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.core.limiter import limiter
+from app.core.config import settings
 from app.database import Base, engine, SessionLocal
-from app.routers import alerts, auth, items, albion, health
+from app.routers import alerts, auth, items, albion, health, openalbion, stream
 
 # ── Logging ────────────────────────────────────────────────────────────────
 logger = logging.getLogger("albion_market")
@@ -50,14 +51,28 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+allowed_origins = {
+    "https://www.marketalbionbr.com.br",
+    "https://marketalbionbr.com.br",
+    "https://front-market-albion.vercel.app",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+}
+
+if settings.FRONTEND_URL:
+    allowed_origins.add(settings.FRONTEND_URL.rstrip("/"))
+
+extra_cors_origins = os.getenv("CORS_ORIGINS", "")
+if extra_cors_origins:
+    for origin in extra_cors_origins.split(","):
+        origin_norm = origin.strip().rstrip("/")
+        if origin_norm:
+            allowed_origins.add(origin_norm)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://www.marketalbionbr.com.br",
-        "https://marketalbionbr.com.br",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=sorted(allowed_origins),
+    allow_origin_regex=r"https://([a-z0-9-]+\.)*marketalbionbr\.com\.br",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -68,6 +83,8 @@ app.include_router(items.router)
 app.include_router(albion.router)
 app.include_router(health.router)
 app.include_router(alerts.router)
+app.include_router(openalbion.router)
+app.include_router(stream.router)
 
 
 @app.get("/")

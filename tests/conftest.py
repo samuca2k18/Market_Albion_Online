@@ -1,17 +1,20 @@
 import os
+
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.main import app
-from app.database import Base, get_db
+# Garante que TESTING esteja definido antes de importar app.main.
+os.environ["TESTING"] = "true"
+
 from app.core.limiter import limiter
+from app.database import Base, get_db
+from app.main import app
 
 # Desativa o rate limiter durante os testes para evitar 429
 limiter.enabled = False
-os.environ["TESTING"] = "true"
 
 
 @pytest.fixture(scope="function")

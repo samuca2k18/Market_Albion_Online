@@ -2,8 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
+import logging
 import os
+import secrets
 import statistics
+import requests
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -12,8 +15,11 @@ from app.utils.albion_client import get_prices, get_price_history
 from app.services.mailer import send_price_alert_email
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
+logger = logging.getLogger("albion_market")
 
-CRON_SECRET = os.getenv("CRON_SECRET")
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 
 def _now_utc() -> datetime:
@@ -272,16 +278,31 @@ def run_checker_internal(db: Session) -> dict:
     return {"checked": checked, "triggered": triggered}
 
 
-@router.post("/run-check")
-def run_checker(
+def _validate_cron_secret(
     x_cron_secret: Optional[str] = Header(None),
-    db: Session = Depends(get_db),
-):
-    """Endpoint HTTP para disparar a verificação manualmente (cron externo ou admin)."""
+    authorization: Optional[str] = Header(None),
+) -> None:
     current_cron_secret = os.getenv("CRON_SECRET")
-    if current_cron_secret and x_cron_secret != current_cron_secret:
+    if not current_cron_secret:
+        raise HTTPException(status_code=503, detail="CRON_SECRET not configured")
+
+    bearer_secret = None
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() == "bearer" and token:
+            bearer_secret = token
+
+    provided_secret = x_cron_secret or bearer_secret
+    if not provided_secret or not secrets.compare_digest(provided_secret, current_cron_secret):
         raise HTTPException(status_code=401, detail="Invalid secret")
 
+
+@router.api_route("/run-check", methods=["GET", "POST"])
+def run_checker(
+    db: Session = Depends(get_db),
+    _: None = Depends(_validate_cron_secret),
+):
+    """Endpoint HTTP para disparar a verificação de alertas (Vercel cron ou cron externo)."""
     return run_checker_internal(db)
 
 
@@ -311,14 +332,68 @@ def _fire_alert(
     # e-mail
     user = db.query(models.User).filter_by(id=alert.user_id).first()
     if user and user.email:
-        send_price_alert_email(
-            to_email=user.email,
-            item=item_label,
-            current_price=current_price,
-            city=alert.city,
-            expected_price=expected_price,
-            percent_below=float(alert.percent_below or 0),
-        )
+        try:
+            send_price_alert_email(
+                to_email=user.email,
+                item=item_label,
+                current_price=current_price,
+                city=alert.city,
+                expected_price=expected_price,
+                percent_below=float(alert.percent_below or 0),
+            )
+        except Exception:
+            logger.exception(
+                "Falha ao enviar e-mail de alerta para user_id=%s item=%s",
+                alert.user_id,
+                item_label,
+            )
+
+    _send_optional_webhooks(
+        item=item_label,
+        current_price=current_price,
+        city=alert.city,
+        expected_price=expected_price,
+        percent_below=float(alert.percent_below or 0),
+    )
 
     # salvar timestamps sempre aware (UTC)
     alert.last_triggered_at = _now_utc()
+
+
+def _send_optional_webhooks(
+    item: str,
+    current_price: float,
+    city: Optional[str],
+    expected_price: Optional[float],
+    percent_below: float,
+) -> None:
+    """
+    Envia alerta opcional para Discord e Telegram se variáveis de ambiente estiverem configuradas.
+    """
+    city_txt = city or "Qualquer"
+    expected_txt = (
+        f" | baseline ~{expected_price:.0f} | -{percent_below:.0f}%"
+        if expected_price is not None
+        else ""
+    )
+    message = f"Albion Alert: {item} @ {current_price:.0f} silver | city={city_txt}{expected_txt}"
+
+    if DISCORD_WEBHOOK_URL:
+        try:
+            requests.post(
+                DISCORD_WEBHOOK_URL,
+                json={"content": message},
+                timeout=10,
+            )
+        except Exception:
+            pass
+
+    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": message},
+                timeout=10,
+            )
+        except Exception:
+            pass
