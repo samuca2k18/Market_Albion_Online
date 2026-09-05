@@ -102,6 +102,52 @@ def _extract_craft_block(block: Any) -> Optional[dict]:
     }
 
 
+def _is_enchant_only_mat(unique_name: str) -> bool:
+    """Fish sauce / alchemy extract / similar mats used only on enchanted consumables."""
+    u = unique_name.upper()
+    return (
+        "FISHSAUCE_LEVEL" in u
+        or "ALCHEMY_EXTRACT_LEVEL" in u
+        or u.endswith("_LEVEL1")
+        or u.endswith("_LEVEL2")
+        or u.endswith("_LEVEL3")
+        or u.endswith("_LEVEL4")
+    ) and (
+        "FISHSAUCE" in u
+        or "ALCHEMY_EXTRACT" in u
+        or "ALCHEMY_RARE" in u
+    )
+
+
+def _synthesize_base_from_enchant1(enc1: dict, base_unique: str) -> Optional[dict]:
+    """
+    Meals/potions often expose only @1/@2/@3 in gameinfo.
+    Approximate flat craft by dropping LEVEL enchant mats from @1.
+    """
+    mats = []
+    for mat in enc1.get("materials") or []:
+        name = mat.get("unique_name") or ""
+        if _is_enchant_only_mat(name):
+            continue
+        mats.append({"unique_name": name.upper(), "count": int(mat["count"])})
+    if not mats:
+        return None
+    # Slightly lower focus than @1 when available
+    focus = enc1.get("focus_cost")
+    focus_f = None
+    if isinstance(focus, (int, float)):
+        focus_f = round(float(focus) * 0.7, 2)
+    return {
+        "unique_name": base_unique,
+        "enchant": 0,
+        "focus_cost": focus_f,
+        "silver": enc1.get("silver", 0) or 0,
+        "materials": mats,
+        "time": enc1.get("time"),
+        "synthesized": True,
+    }
+
+
 def parse_recipes_from_gameinfo(payload: dict, unique_name: str) -> List[dict]:
     """
     Return list of normalized recipes for base + enchantments.
@@ -123,6 +169,7 @@ def parse_recipes_from_gameinfo(payload: dict, unique_name: str) -> List[dict]:
 
     enc_root = payload.get("enchantments") or {}
     enc_list = enc_root.get("enchantments") if isinstance(enc_root, dict) else None
+    enc_recipes: List[dict] = []
     if isinstance(enc_list, list):
         for enc in enc_list:
             if not isinstance(enc, dict):
@@ -135,13 +182,23 @@ def parse_recipes_from_gameinfo(payload: dict, unique_name: str) -> List[dict]:
             craft = _extract_craft_block(enc.get("craftingRequirements") or enc.get("craftingrequirements"))
             if not craft:
                 continue
-            recipes.append(
+            enc_recipes.append(
                 {
                     "unique_name": f"{base_unique}@{level_i}",
                     "enchant": level_i,
                     **craft,
                 }
             )
+
+    recipes.extend(enc_recipes)
+
+    # Consumables: if flat recipe missing, synthesize from @1
+    if not any(r.get("enchant") == 0 for r in recipes):
+        enc1 = next((r for r in enc_recipes if r.get("enchant") == 1), None)
+        if enc1:
+            syn = _synthesize_base_from_enchant1(enc1, base_unique)
+            if syn:
+                recipes.insert(0, syn)
 
     return recipes
 
