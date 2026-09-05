@@ -285,7 +285,7 @@ def run_checker(
             detail="CRON_SECRET is not configured; refusing to run check",
         )
     if not x_cron_secret or x_cron_secret != current_cron_secret:
-        raise HTTPException(status_code=401, detail="Invalid or missing cron secret")
+        raise HTTPException(status_code=401, detail="Invalid secret")
 
     return run_checker_internal(db)
 
