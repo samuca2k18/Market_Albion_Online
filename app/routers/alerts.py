@@ -279,8 +279,13 @@ def run_checker(
 ):
     """Endpoint HTTP para disparar a verificação manualmente (cron externo ou admin)."""
     current_cron_secret = os.getenv("CRON_SECRET")
-    if current_cron_secret and x_cron_secret != current_cron_secret:
-        raise HTTPException(status_code=401, detail="Invalid secret")
+    if not current_cron_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="CRON_SECRET is not configured; refusing to run check",
+        )
+    if not x_cron_secret or x_cron_secret != current_cron_secret:
+        raise HTTPException(status_code=401, detail="Invalid or missing cron secret")
 
     return run_checker_internal(db)
 
