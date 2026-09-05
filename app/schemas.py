@@ -247,6 +247,7 @@ class PriceAlertOut(PriceAlertCreate):
     id: int
     is_active: bool
     last_triggered_at: Optional[datetime] = None
+    last_checked_at: Optional[datetime] = None
     last_expected_price: Optional[float] = None
     last_expected_at: Optional[datetime] = None
 

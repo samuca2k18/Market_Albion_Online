@@ -70,3 +70,7 @@ celerybeat.pid
 # Sphinx
 docs/_build/
 
+
+# Recipe cache (regenerated at runtime)
+app/data/recipe_cache/*.json
+!app/data/recipe_cache/.gitkeep

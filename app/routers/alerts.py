@@ -176,6 +176,137 @@ def mark_read(
     return {"ok": True}
 
 
+
+
+@router.post("/run-check-mine")
+def run_checker_mine(
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    Authenticated self-check: runs only this user's active alerts and returns status.
+    """
+    alerts: list[models.PriceAlert] = (
+        db.query(models.PriceAlert)
+        .filter_by(user_id=user.id, is_active=True)
+        .all()
+    )
+    # Temporarily reuse internal loop by filtering — inline a thin wrapper
+    checked = 0
+    triggered = 0
+    errors = 0
+    details = []
+
+    for alert in alerts:
+        checked += 1
+        alert.last_checked_at = _now_utc()
+        cities = [alert.city] if alert.city else None
+        qualities = [alert.quality] if alert.quality else None
+        try:
+            data = get_prices([alert.item_id], cities, qualities)
+        except Exception:
+            errors += 1
+            details.append({"alert_id": alert.id, "status": "error_fetch"})
+            continue
+
+        valid = [
+            d.get("sell_price_min")
+            for d in (data or [])
+            if isinstance(d.get("sell_price_min"), (int, float)) and d["sell_price_min"] > 0
+        ]
+        if not valid:
+            details.append({"alert_id": alert.id, "status": "no_price"})
+            continue
+
+        current_price = float(min(valid))
+        last_triggered = _ensure_aware(alert.last_triggered_at)
+        if last_triggered is not None:
+            if (_now_utc() - last_triggered) < timedelta(minutes=int(alert.cooldown_minutes or 0)):
+                details.append({"alert_id": alert.id, "status": "cooldown", "price": current_price})
+                continue
+
+        item_label = alert.display_name or alert.item_id
+        fired = False
+
+        if alert.target_price and current_price <= float(alert.target_price):
+            _fire_alert(db, alert, item_label, current_price, expected_price=None)
+            triggered += 1
+            fired = True
+        elif alert.percent_below:
+            expected = float(alert.expected_price) if alert.expected_price else None
+            if expected is None and alert.use_ai_expected:
+                city_list = [alert.city] if alert.city else ["Caerleon"]
+                try:
+                    expected = _compute_expected_price_from_history(
+                        item_id=alert.item_id,
+                        cities=city_list,
+                        days=int(alert.ai_days or 7),
+                        resolution=str(alert.ai_resolution or "6h"),
+                        stat=str(alert.ai_stat or "median"),
+                        min_points=int(alert.ai_min_points or 10),
+                    )
+                except Exception:
+                    expected = None
+                if expected is None:
+                    expected = current_price
+                alert.last_expected_price = expected
+                alert.last_expected_at = _now_utc()
+            if expected is not None:
+                threshold = expected * (1 - float(alert.percent_below) / 100.0)
+                if current_price <= threshold:
+                    _fire_alert(db, alert, item_label, current_price, expected_price=expected)
+                    triggered += 1
+                    fired = True
+
+        details.append({
+            "alert_id": alert.id,
+            "item_id": alert.item_id,
+            "status": "triggered" if fired else "ok",
+            "price": current_price,
+            "last_checked_at": alert.last_checked_at.isoformat() if alert.last_checked_at else None,
+        })
+
+    unread = (
+        db.query(models.UserNotification)
+        .filter_by(user_id=user.id, is_read=False)
+        .count()
+    )
+    db.commit()
+    return {
+        "checked": checked,
+        "triggered": triggered,
+        "errors": errors,
+        "unread_notifications": unread,
+        "details": details,
+    }
+
+
+@router.get("/summary")
+def alerts_summary(
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Quick status for UI: alert counts + unread notifications + last check."""
+    alerts = db.query(models.PriceAlert).filter_by(user_id=user.id).all()
+    active = sum(1 for a in alerts if a.is_active)
+    last_checked = None
+    for a in alerts:
+        ts = _ensure_aware(getattr(a, "last_checked_at", None))
+        if ts and (last_checked is None or ts > last_checked):
+            last_checked = ts
+    unread = (
+        db.query(models.UserNotification)
+        .filter_by(user_id=user.id, is_read=False)
+        .count()
+    )
+    return {
+        "total_alerts": len(alerts),
+        "active_alerts": active,
+        "unread_notifications": unread,
+        "last_checked_at": last_checked.isoformat() if last_checked else None,
+    }
+
+
 def run_checker_internal(db: Session) -> dict:
     """
     Lógica de verificação de alertas. Pode ser chamada pelo scheduler
@@ -190,6 +321,7 @@ def run_checker_internal(db: Session) -> dict:
 
     for alert in alerts:
         checked += 1
+        alert.last_checked_at = _now_utc()
 
         cities = [alert.city] if alert.city else None
         qualities = [alert.quality] if alert.quality else None
