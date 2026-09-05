@@ -16,77 +16,146 @@ RENDER_ICON = "https://render.albiononline.com/v1/item/{unique}.png"
 _TIER_RE = re.compile(r"^T(\d+)_", re.IGNORECASE)
 _ENCHANT_RE = re.compile(r"@(\d+)$")
 
-# Weapon family token → display name
-_WEAPON_FAMILY_NAMES: Dict[str, str] = {
-    "SWORD": "Swords",
-    "CLAYMORE": "Claymores",
-    "DUALSWORD": "Dual Swords",
-    "AXE": "Axes",
-    "HALBERD": "Halberds",
-    "SCYTHE": "Scythes",
-    "CARVING": "Carving Axes",
-    "MACE": "Maces",
-    "HEAVYMACE": "Heavy Maces",
-    "MORNINGSTAR": "Morning Stars",
-    "HAMMER": "Hammers",
-    "GREATHAMMER": "Great Hammers",
-    "POLEHAMMER": "Polehammers",
-    "DUALHAMMER": "Dual Hammers",
-    "SPEAR": "Spears",
-    "PIKE": "Pikes",
-    "GLAIVE": "Glaives",
-    "TRIDENT": "Tridents",
-    "DAGGER": "Daggers",
-    "DAGGERPAIR": "Dagger Pairs",
-    "CLAWPAIR": "Claws",
-    "BOW": "Bows",
-    "LONGBOW": "Longbows",
-    "WARBOW": "Warbows",
-    "CROSSBOW": "Crossbows",
-    "CROSSBOWLARGE": "Heavy Crossbows",
-    "DUALCROSSBOW": "Dual Crossbows",
-    "FIRESTAFF": "Fire Staffs",
-    "INFERNOSTAFF": "Infernal Staffs",
-    "WILDFIRESTAFF": "Wildfire Staffs",
-    "FROSTSTAFF": "Frost Staffs",
-    "GLACIALSTAFF": "Glacial Staffs",
-    "ICICLESTAFF": "Icicle Staffs",
-    "HOLYSTAFF": "Holy Staffs",
-    "DIVINESTAFF": "Divine Staffs",
-    "LIFETOUCHSTAFF": "Lifetouch Staffs",
-    "NATURESTAFF": "Nature Staffs",
-    "WILDSTAFF": "Wild Staffs",
-    "ARCANESTAFF": "Arcane Staffs",
-    "ENIGMATICSTAFF": "Enigmatic Staffs",
-    "CURSEDSTAFF": "Cursed Staffs",
-    "DEMONICSTAFF": "Demonic Staffs",
-    "QUARTERSTAFF": "Quarterstaffs",
-    "IRONCLADEDSTAFF": "Iron-clad Staffs",
-    "DOUBLEBLADEDSTAFF": "Double-bladed Staffs",
-    "BLACKMONKSTAFF": "Black Monk Staffs",
-    "SHIELD": "Shields",
-    "TOWERSHIELD": "Tower Shields",
-    "SPIKEDSHIELD": "Spiked Shields",
-    "TORCH": "Torches",
-    "BOOK": "Tomes",
-    "TOME": "Tomes",
-    "ORB": "Orbs",
-    "HORN": "Horns",
-    "TOTEM": "Totems",
-    "CENSER": "Censers",
-    "DEMONSKULL": "Demon Skulls",
-    "KNUCKLES": "Knuckles",
-    "SHAPESHIFTER": "Shapeshifter Staffs",
-    "TOOL": "Tools",
+# Family key → (en, pt_br)
+_WEAPON_FAMILY_NAMES: Dict[str, tuple[str, str]] = {
+    "SWORD": ("Swords", "Espadas"),
+    "CLAYMORE": ("Claymores", "Claymores"),
+    "DUALSWORD": ("Dual Swords", "Espadas Duplas"),
+    "AXE": ("Axes", "Machados"),
+    "HALBERD": ("Halberds", "Alabardas"),
+    "SCYTHE": ("Scythes", "Foices"),
+    "CARVING": ("Carving Axes", "Machados de Entalhe"),
+    "CLEAVER": ("Cleavers", "Cutelos"),
+    "DUALAXE": ("Dual Axes", "Machados Duplos"),
+    "MACE": ("Maces", "Maças"),
+    "HEAVYMACE": ("Heavy Maces", "Maças Pesadas"),
+    "MORNINGSTAR": ("Morning Stars", "Estrelas da Manhã"),
+    "DUALMACE": ("Dual Maces", "Maças Duplas"),
+    "FLAIL": ("Flails", "Manguais"),
+    "HAMMER": ("Hammers", "Martelos"),
+    "GREATHAMMER": ("Great Hammers", "Grandes Martelos"),
+    "POLEHAMMER": ("Polehammers", "Martelos de Haste"),
+    "DUALHAMMER": ("Dual Hammers", "Martelos Duplos"),
+    "SPEAR": ("Spears", "Lanças"),
+    "PIKE": ("Pikes", "Piques"),
+    "GLAIVE": ("Glaives", "Glaives"),
+    "TRIDENT": ("Tridents", "Tridentes"),
+    "HARPOON": ("Harpoons", "Arpões"),
+    "DAGGER": ("Daggers", "Adagas"),
+    "DAGGERPAIR": ("Dagger Pairs", "Pares de Adagas"),
+    "CLAWPAIR": ("Claws", "Garras"),
+    "BLOODLETTER": ("Bloodletters", "Sangradores"),
+    "DUALSICKLE": ("Dual Sickles", "Foices Duplas"),
+    "RAPIER": ("Rapiers", "Floretes"),
+    "BOW": ("Bows", "Arcos"),
+    "LONGBOW": ("Longbows", "Arcos Longos"),
+    "WARBOW": ("Warbows", "Arcos de Guerra"),
+    "CROSSBOW": ("Crossbows", "Bestas"),
+    "CROSSBOWLARGE": ("Heavy Crossbows", "Bestas Pesadas"),
+    "DUALCROSSBOW": ("Dual Crossbows", "Bestas Duplas"),
+    "REPEATINGCROSSBOW": ("Crossbows", "Bestas"),
+    "1HCROSSBOW": ("Crossbows", "Bestas"),
+    "FIRESTAFF": ("Fire Staffs", "Cajados de Fogo"),
+    "INFERNOSTAFF": ("Infernal Staffs", "Cajados Infernais"),
+    "WILDFIRESTAFF": ("Wildfire Staffs", "Cajados de Fogo Selvagem"),
+    "FROSTSTAFF": ("Frost Staffs", "Cajados de Gelo"),
+    "GLACIALSTAFF": ("Glacial Staffs", "Cajados Glaciais"),
+    "ICICLESTAFF": ("Icicle Staffs", "Cajados de Estalactite"),
+    "HOLYSTAFF": ("Holy Staffs", "Cajados Sagrados"),
+    "DIVINESTAFF": ("Divine Staffs", "Cajados Divinos"),
+    "LIFETOUCHSTAFF": ("Lifetouch Staffs", "Cajados do Toque da Vida"),
+    "NATURESTAFF": ("Nature Staffs", "Cajados da Natureza"),
+    "WILDSTAFF": ("Wild Staffs", "Cajados Selvagens"),
+    "ARCANESTAFF": ("Arcane Staffs", "Cajados Arcanos"),
+    "ENIGMATICSTAFF": ("Enigmatic Staffs", "Cajados Enigmáticos"),
+    "ARCANE": ("Arcane Staffs", "Cajados Arcanos"),
+    "CURSEDSTAFF": ("Cursed Staffs", "Cajados Amaldiçoados"),
+    "DEMONICSTAFF": ("Demonic Staffs", "Cajados Demoníacos"),
+    "QUARTERSTAFF": ("Quarterstaffs", "Cajados de Combate"),
+    "IRONCLADEDSTAFF": ("Iron-clad Staffs", "Cajados Encouraçados"),
+    "DOUBLEBLADEDSTAFF": ("Double-bladed Staffs", "Cajados de Lâmina Dupla"),
+    "BLACKMONKSTAFF": ("Black Monk Staffs", "Cajados do Monge Negro"),
+    "COMBATSTAFF": ("Quarterstaffs", "Cajados de Combate"),
+    "SHIELD": ("Shields", "Escudos"),
+    "TOWERSHIELD": ("Tower Shields", "Escudos Torre"),
+    "SPIKEDSHIELD": ("Spiked Shields", "Escudos com Espinhos"),
+    "TORCH": ("Torches", "Tochas"),
+    "BOOK": ("Tomes", "Tomos"),
+    "TOME": ("Tomes", "Tomos"),
+    "ORB": ("Orbs", "Orbes"),
+    "ENIGMATICORB": ("Orbs", "Orbes"),
+    "HORN": ("Horns", "Chifres"),
+    "TOTEM": ("Totems", "Totens"),
+    "CENSER": ("Censers", "Incensários"),
+    "DEMONSKULL": ("Demon Skulls", "Crânios Demoníacos"),
+    "KNUCKLES": ("Knuckles", "Soqueiras"),
+    "IRONGAUNTLETS": ("Knuckles", "Soqueiras"),
+    "ICEGAUNTLETS": ("Knuckles", "Soqueiras"),
+    "SHAPESHIFTER": ("Shapeshifter Staffs", "Cajados Metamorfos"),
+    "DUALSCIMITAR": ("Dual Scimitars", "Cimitarras Duplas"),
+    "SCIMITAR": ("Scimitars", "Cimitarras"),
+    "ROCKMACE": ("Maces", "Maças"),
+    "ROCKSTAFF": ("Quarterstaffs", "Cajados de Combate"),
+    "TWINSCYTHE": ("Scythes", "Foices"),
+    "TALISMAN": ("Talismans", "Talismãs"),
+    "SKULLORB": ("Orbs", "Orbes"),
+    "FIRE": ("Fire Staffs", "Cajados de Fogo"),
+    "ICECRYSTAL": ("Frost Staffs", "Cajados de Gelo"),
+    "LAMP": ("Lamps", "Lâmpadas"),
+    "JESTERCANE": ("Jester Canes", "Bengalas de Bobo"),
+    "RAM": ("Battle Rams", "Aríetes"),
+    "BLOODLETTER": ("Bloodletters", "Sangradores"),
+    "ARTEFACT": ("Artefacts", "Artefatos"),
+    "TOOL": ("Tools", "Ferramentas"),
+    "OTHER": ("Other", "Outros"),
 }
 
-_ARMOR_SLOT_NAMES = {"HEAD": "Head", "ARMOR": "Armor", "SHOES": "Shoes"}
-_ARMOR_MAT_NAMES = {
-    "CLOTH": "Cloth",
-    "LEATHER": "Leather",
-    "PLATE": "Plate",
-    "GATHERER": "Gatherer",
+# Noisy / alias family tokens → canonical key
+_FAMILY_ALIASES: Dict[str, str] = {
+    "1HCROSSBOW": "CROSSBOW",
+    "REPEATINGCROSSBOW": "CROSSBOW",
+    "BOOK": "TOME",
+    "ARCANE": "ARCANESTAFF",
+    "FIRE": "FIRESTAFF",
+    "COMBATSTAFF": "QUARTERSTAFF",
+    "ENIGMATICORB": "ORB",
+    "SKULLORB": "ORB",
+    "ICECRYSTAL": "FROSTSTAFF",
+    "IRONGAUNTLETS": "KNUCKLES",
+    "ICEGAUNTLETS": "KNUCKLES",
+    "ROCKMACE": "MACE",
+    "ROCKSTAFF": "QUARTERSTAFF",
+    "TWINSCYTHE": "SCYTHE",
+    "CARVINGAXE": "CARVING",
 }
+
+_ARMOR_SLOT_NAMES = {
+    "HEAD": ("Head", "Cabeça"),
+    "ARMOR": ("Armor", "Armadura"),
+    "SHOES": ("Shoes", "Sapatos"),
+}
+_ARMOR_MAT_NAMES = {
+    "CLOTH": ("Cloth", "Tecido"),
+    "LEATHER": ("Leather", "Couro"),
+    "PLATE": ("Plate", "Placas"),
+    "GATHERER": ("Gatherer", "Coletor"),
+}
+
+_ACCESSORY_NAMES = {
+    "BAG": ("Bags", "Bolsas"),
+    "CAPE": ("Capes", "Capas"),
+    "MOUNT": ("Mounts", "Montarias"),
+    "OTHER": ("Other", "Outros"),
+}
+
+_CONSUMABLE_NAMES = {
+    "POTION": ("Potions", "Poções"),
+    "MEAL": ("Meals", "Refeições"),
+    "FOOD": ("Food", "Comida"),
+    "OTHER": ("Other", "Outros"),
+}
+
+_GENERIC = {"ARTEFACT": ("Artefacts", "Artefatos"), "OTHER": ("Other", "Outros")}
 
 
 def stable_id(key: str) -> int:
@@ -105,12 +174,54 @@ def strip_tier_enchant(unique: str) -> str:
     return _ENCHANT_RE.sub("", base)
 
 
-def classify_unique(unique: str) -> Optional[ItemType]:
-    """Heuristic item type from UniqueName. Returns None for untyped/other."""
+def is_vanity_or_junk(unique: str) -> bool:
+    """Skins, furniture, journals, vanity, unlock tokens, tools, non-gameplay UNIQUE_."""
+    u = unique.upper()
+    if u.startswith("SKIN_") or "FURNITUREITEM" in u or "FURNITURE" in u:
+        return True
+    if "_JOURNAL_" in u or u.startswith("JOURNAL_"):
+        return True
+    if "VANITY" in u or "UNLOCK_" in u:
+        return True
+    if u.startswith("UNIQUE_"):
+        return True
+    # Gathering / tracking tools — not equipment tabs by default
+    if re.search(r"(^|_)TOOL(_|$)", u):
+        return True
+    # Farm / decoration / avatar fluff often mis-tagged
+    if any(
+        tok in u
+        for tok in (
+            "AVATAR",
+            "LOOTCHEST",
+            "HIDEOUT",
+            "NONTRADABLE",
+            "NON_TRADABLE",
+            "ADC_",
+            "TELLAFRIEND",
+        )
+    ):
+        return True
+    return False
+
+
+def classify_unique(unique: str, *, include_vanity: bool = True) -> Optional[ItemType]:
+    """Heuristic item type from UniqueName. Returns None for untyped/other.
+
+    When include_vanity is False, vanity/tools/junk are not classified into tabs.
+    Index build keeps include_vanity=True and filters at query time via meta flag.
+    """
     u = unique.upper()
 
-    # Skip skins / furniture / journals — not useful in equipment tabs
-    if u.startswith("SKIN_") or "FURNITURE" in u or "_JOURNAL_" in u:
+    if not include_vanity and is_vanity_or_junk(unique):
+        return None
+
+    # Always skip pure skins / furniture / journals from typed indexes when
+    # not including vanity (also skip from default classify for skins etc.)
+    if u.startswith("SKIN_") or "FURNITUREITEM" in u or "_JOURNAL_" in u:
+        if not include_vanity:
+            return None
+        # Even with vanity, skins/furniture/journals stay out of equipment tabs
         return None
 
     # Consumables (token-aware FOOD to avoid furniture/false positives)
@@ -123,8 +234,11 @@ def classify_unique(unique: str) -> Optional[ItemType]:
     if re.search(r"(^|_)(HEAD|ARMOR|SHOES)_", u):
         return "armor"
 
-    # Weapons
+    # Weapons (MAIN/2H/OFF) — tools already gated by include_vanity above
     if re.search(r"(^|_)(2H|MAIN|OFF)_", u):
+        return "weapon"
+    # Artefact weapons without MAIN/2H/OFF still start with ARTEFACT_2H_ etc.
+    if "ARTEFACT" in u and re.search(r"(^|_)(2H|MAIN|OFF)_", u):
         return "weapon"
 
     # Accessories — token-aware to avoid CABBAGE / MOUNTAIN false positives
@@ -138,10 +252,29 @@ def classify_unique(unique: str) -> Optional[ItemType]:
     return None
 
 
+def _pick_name(pair: tuple[str, str], lang: Lang) -> str:
+    return pair[1] if lang == "pt_br" else pair[0]
+
+
+def _normalize_family(family: str) -> str:
+    family = family.upper()
+    # Strip leading hand prefixes glued into the token (1HCROSSBOW)
+    if family.startswith("1H") and len(family) > 2:
+        alt = family[2:]
+        if alt in _WEAPON_FAMILY_NAMES or alt in _FAMILY_ALIASES:
+            family = alt
+    if family.startswith("2H") and len(family) > 2:
+        alt = family[2:]
+        if alt in _WEAPON_FAMILY_NAMES or alt in _FAMILY_ALIASES:
+            family = alt
+    return _FAMILY_ALIASES.get(family, family)
+
+
 def _weapon_family(unique: str) -> tuple[str, str]:
-    """Return (category_key, display_name) for a weapon UniqueName."""
+    """Return (category_key, english_fallback) — localized later via key."""
     u = unique.upper()
     if "ARTEFACT" in u:
+        # Prefer grouping under Artefacts (clean UX); optional base family ignored
         return ("ARTEFACT", "Artefacts")
 
     base = strip_tier_enchant(u)
@@ -150,12 +283,15 @@ def _weapon_family(unique: str) -> tuple[str, str]:
         return ("OTHER", "Other")
 
     rest = m.group(1)
-    # First token is the core family (SWORD, BOW, FIRESTAFF, …)
-    family = rest.split("_")[0]
-    if family == "BOOK":
-        family = "TOME"
-    name = _WEAPON_FAMILY_NAMES.get(family, family.replace("_", " ").title() + "s")
-    return (family, name)
+    family = _normalize_family(rest.split("_")[0])
+    pair = _WEAPON_FAMILY_NAMES.get(family)
+    if pair:
+        return (family, pair[0])
+    # Title-case fallback without ugly glued tokens
+    pretty = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", family.replace("_", " ").title())
+    if not pretty.endswith("s"):
+        pretty += "s"
+    return (family, pretty)
 
 
 def _armor_category(unique: str) -> tuple[str, str]:
@@ -177,30 +313,30 @@ def _armor_category(unique: str) -> tuple[str, str]:
 
     if slot and mat:
         key = f"{slot}_{mat}"
-        name = f"{_ARMOR_SLOT_NAMES[slot]} {_ARMOR_MAT_NAMES[mat]}"
-        return (key, name)
+        en = f"{_ARMOR_SLOT_NAMES[slot][0]} {_ARMOR_MAT_NAMES[mat][0]}"
+        return (key, en)
     if slot:
-        return (slot, _ARMOR_SLOT_NAMES[slot])
+        return (slot, _ARMOR_SLOT_NAMES[slot][0])
     return ("OTHER", "Other")
 
 
 def _accessory_category(unique: str) -> tuple[str, str]:
     u = unique.upper()
     if re.search(r"(^|_)BAG(?:_|@|$)", u) or re.search(r"^T\d+_BAG(?:@\d+)?$", u):
-        return ("BAG", "Bag")
+        return ("BAG", "Bags")
     if "CAPE" in u:
-        return ("CAPE", "Cape")
+        return ("CAPE", "Capes")
     if re.search(r"(^|_)MOUNT_", u):
-        return ("MOUNT", "Mount")
+        return ("MOUNT", "Mounts")
     return ("OTHER", "Other")
 
 
 def _consumable_category(unique: str) -> tuple[str, str]:
     u = unique.upper()
     if "POTION" in u:
-        return ("POTION", "Potion")
+        return ("POTION", "Potions")
     if "_MEAL_" in u or u.startswith("MEAL_"):
-        return ("MEAL", "Meal")
+        return ("MEAL", "Meals")
     if re.search(r"(^|_)FOOD(_|$)", u):
         return ("FOOD", "Food")
     return ("OTHER", "Other")
@@ -214,6 +350,38 @@ def category_for(unique: str, item_type: ItemType) -> tuple[str, str]:
     if item_type == "accessory":
         return _accessory_category(unique)
     return _consumable_category(unique)
+
+
+def localize_category_name(item_type: ItemType, category_key: str, fallback: str, lang: Lang) -> str:
+    key = category_key.upper()
+    if item_type == "weapon":
+        pair = _WEAPON_FAMILY_NAMES.get(key) or _GENERIC.get(key)
+        if pair:
+            return _pick_name(pair, lang)
+        return fallback if lang == "en_us" else fallback
+    if item_type == "armor":
+        if key == "ARTEFACT":
+            return _pick_name(_GENERIC["ARTEFACT"], lang)
+        if "_" in key:
+            slot, mat = key.split("_", 1)
+            if slot in _ARMOR_SLOT_NAMES and mat in _ARMOR_MAT_NAMES:
+                if lang == "pt_br":
+                    return f"{_ARMOR_SLOT_NAMES[slot][1]} {_ARMOR_MAT_NAMES[mat][1]}"
+                return f"{_ARMOR_SLOT_NAMES[slot][0]} {_ARMOR_MAT_NAMES[mat][0]}"
+        if key in _ARMOR_SLOT_NAMES:
+            return _pick_name(_ARMOR_SLOT_NAMES[key], lang)
+        if key in _GENERIC:
+            return _pick_name(_GENERIC[key], lang)
+        return fallback
+    if item_type == "accessory":
+        pair = _ACCESSORY_NAMES.get(key) or _GENERIC.get(key)
+        if pair:
+            return _pick_name(pair, lang)
+        return fallback
+    pair = _CONSUMABLE_NAMES.get(key) or _GENERIC.get(key)
+    if pair:
+        return _pick_name(pair, lang)
+    return fallback
 
 
 def category_id_for(item_type: ItemType, category_key: str) -> int:
@@ -261,7 +429,7 @@ _TYPED: Dict[ItemType, List[dict]] = {
 _META: Dict[str, dict] = {}
 # id -> unique
 _ID_TO_UNIQUE: Dict[int, str] = {}
-# (type, category_id) -> category_key
+# (type, category_id) -> category meta
 _CATEGORIES: Dict[ItemType, Dict[int, dict]] = {
     "weapon": {},
     "armor": {},
@@ -270,12 +438,24 @@ _CATEGORIES: Dict[ItemType, Dict[int, dict]] = {
 }
 
 
+def _tier_sort_key(meta: dict) -> tuple:
+    """Tier descending, then localized-independent unique name ascending."""
+    t = meta.get("tier")
+    try:
+        tier_num = int(t) if t is not None else -1
+    except (TypeError, ValueError):
+        tier_num = -1
+    return (-tier_num, meta["unique"])
+
+
 def _build_indexes() -> None:
     for registro in ALBION_ITEMS:
         unique = registro.get("UniqueName")
         if not unique:
             continue
-        item_type = classify_unique(unique)
+        # Build typed indexes including vanity so include_vanity=true can serve them;
+        # skins/furniture/journals stay out entirely (never useful in equipment tabs).
+        item_type = classify_unique(unique, include_vanity=True)
         if item_type is None:
             continue
 
@@ -283,6 +463,8 @@ def _build_indexes() -> None:
         cat_id = category_id_for(item_type, cat_key)
         iid = item_id_for(unique)
         tier = parse_tier(unique)
+        vanity = is_vanity_or_junk(unique)
+        is_tier0 = tier is None or tier == "0"
 
         meta = {
             "unique": unique,
@@ -290,6 +472,8 @@ def _build_indexes() -> None:
             "tier": tier,
             "category_id": cat_id,
             "category_key": cat_key,
+            "vanity": vanity,
+            "is_tier0": is_tier0,
             "registro": registro,
         }
         _META[unique] = meta
@@ -299,26 +483,37 @@ def _build_indexes() -> None:
         if cat_id not in _CATEGORIES[item_type]:
             _CATEGORIES[item_type][cat_id] = {
                 "id": cat_id,
-                "name": cat_name,
+                "name": cat_name,  # English fallback stored; localized at list time
                 "type": item_type,
                 "subcategories": [],
                 "_key": cat_key,
             }
 
     for t in _TYPED:
-        _TYPED[t].sort(key=lambda m: (m["tier"] or "0", m["unique"]))
+        _TYPED[t].sort(key=_tier_sort_key)
 
 
 _build_indexes()
 
 
-def list_categories(item_type: ItemType) -> List[dict]:
-    cats = list(_CATEGORIES[item_type].values())
-    cats.sort(key=lambda c: c["name"])
-    return [
-        {"id": c["id"], "name": c["name"], "type": c["type"], "subcategories": c["subcategories"]}
-        for c in cats
-    ]
+def list_categories(item_type: ItemType, lang: Lang = "pt_br", *, include_vanity: bool = False) -> List[dict]:
+    lang = "pt_br" if lang not in ("pt_br", "en_us") else lang
+    # Only expose categories that still have at least one visible item
+    used_ids = set()
+    for meta in _TYPED[item_type]:
+        if not include_vanity and (meta["vanity"] or meta["is_tier0"]):
+            continue
+        used_ids.add(meta["category_id"])
+
+    cats = [c for c in _CATEGORIES[item_type].values() if c["id"] in used_ids]
+    localized = []
+    for c in cats:
+        name = localize_category_name(item_type, c["_key"], c["name"], lang)
+        localized.append(
+            {"id": c["id"], "name": name, "type": c["type"], "subcategories": c["subcategories"]}
+        )
+    localized.sort(key=lambda c: c["name"])
+    return localized
 
 
 def list_items(
@@ -330,6 +525,7 @@ def list_items(
     lang: Lang = "pt_br",
     limit: int = 200,
     offset: int = 0,
+    include_vanity: bool = False,
 ) -> List[dict]:
     lang = "pt_br" if lang not in ("pt_br", "en_us") else lang
     limit = max(1, min(limit, 1000))
@@ -339,6 +535,12 @@ def list_items(
     results: List[dict] = []
 
     for meta in _TYPED[item_type]:
+        if not include_vanity:
+            if meta["vanity"]:
+                continue
+            # Default browse: drop tier 0 / untiered junk (unless caller asks tier=0)
+            if meta["is_tier0"] and tier != 0:
+                continue
         if tier is not None and meta["tier"] != str(tier):
             continue
         if category_id is not None and meta["category_id"] != category_id:
@@ -370,5 +572,17 @@ def get_meta_by_id(item_id: int) -> Optional[dict]:
     return _META.get(unique)
 
 
-def catalog_stats() -> dict:
-    return {t: len(items) for t, items in _TYPED.items()}
+def catalog_stats(*, include_vanity: bool = False) -> dict:
+    out: Dict[str, int] = {}
+    for t, items in _TYPED.items():
+        if include_vanity:
+            out[t] = len(items)
+        else:
+            out[t] = sum(1 for m in items if not m["vanity"] and not m["is_tier0"])
+    return out
+
+
+def count_items(item_type: ItemType, *, include_vanity: bool = False) -> int:
+    if include_vanity:
+        return len(_TYPED[item_type])
+    return sum(1 for m in _TYPED[item_type] if not m["vanity"] and not m["is_tier0"])

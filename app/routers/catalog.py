@@ -29,9 +29,20 @@ def _parse_lang(lang: str) -> Lang:
 @router.get("/categories")
 def get_categories(
     type: str = Query(..., description="weapon, armor, accessory, consumable"),
+    lang: str = Query("pt_br", description="pt_br | en_us"),
+    include_vanity: bool = Query(
+        False,
+        description="Include vanity/skins/tools/junk categories (default false)",
+    ),
 ):
     item_type = _parse_type(type)
-    return {"data": idx.list_categories(item_type)}
+    return {
+        "data": idx.list_categories(
+            item_type,
+            lang=_parse_lang(lang),
+            include_vanity=include_vanity,
+        )
+    }
 
 
 @router.get("/items")
@@ -44,6 +55,10 @@ def get_items(
     lang: str = Query("pt_br", description="pt_br | en_us"),
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    include_vanity: bool = Query(
+        False,
+        description="Include tier-0 / vanity / tools / UNIQUE junk (default false)",
+    ),
 ):
     del subcategory_id  # accepted for API compatibility; unused
     item_type = _parse_type(type)
@@ -56,6 +71,7 @@ def get_items(
             lang=_parse_lang(lang),
             limit=limit,
             offset=offset,
+            include_vanity=include_vanity,
         )
     }
 
@@ -69,6 +85,7 @@ def _items_alias(
     lang: str,
     limit: int,
     offset: int,
+    include_vanity: bool,
 ):
     del subcategory_id
     return {
@@ -80,6 +97,7 @@ def _items_alias(
             lang=_parse_lang(lang),
             limit=limit,
             offset=offset,
+            include_vanity=include_vanity,
         )
     }
 
@@ -93,8 +111,11 @@ def get_weapons(
     lang: str = Query("pt_br"),
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    include_vanity: bool = Query(False),
 ):
-    return _items_alias("weapon", category_id, subcategory_id, tier, q, lang, limit, offset)
+    return _items_alias(
+        "weapon", category_id, subcategory_id, tier, q, lang, limit, offset, include_vanity
+    )
 
 
 @router.get("/armors")
@@ -106,8 +127,11 @@ def get_armors(
     lang: str = Query("pt_br"),
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    include_vanity: bool = Query(False),
 ):
-    return _items_alias("armor", category_id, subcategory_id, tier, q, lang, limit, offset)
+    return _items_alias(
+        "armor", category_id, subcategory_id, tier, q, lang, limit, offset, include_vanity
+    )
 
 
 @router.get("/accessories")
@@ -119,8 +143,11 @@ def get_accessories(
     lang: str = Query("pt_br"),
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    include_vanity: bool = Query(False),
 ):
-    return _items_alias("accessory", category_id, subcategory_id, tier, q, lang, limit, offset)
+    return _items_alias(
+        "accessory", category_id, subcategory_id, tier, q, lang, limit, offset, include_vanity
+    )
 
 
 @router.get("/consumables")
@@ -132,8 +159,11 @@ def get_consumables(
     lang: str = Query("pt_br"),
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    include_vanity: bool = Query(False),
 ):
-    return _items_alias("consumable", category_id, subcategory_id, tier, q, lang, limit, offset)
+    return _items_alias(
+        "consumable", category_id, subcategory_id, tier, q, lang, limit, offset, include_vanity
+    )
 
 
 @router.get("/item-detail/{item_type}/{item_id}")
@@ -175,6 +205,8 @@ def consumable_craftings(consumable_id: int = Query(...)):
 
 
 @router.get("/stats")
-def catalog_stats():
+def catalog_stats(
+    include_vanity: bool = Query(False),
+):
     """Debug/ops: counts per typed catalog."""
-    return {"data": idx.catalog_stats()}
+    return {"data": idx.catalog_stats(include_vanity=include_vanity)}
